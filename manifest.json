@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.bonesgit.omarchy-netdata",
+  "name": "Netdata",
+  "version": "1.3.0",
+  "author": "bonesgit",
+  "license": "MIT",
+  "description": "Netdata GPU utilization for the Omarchy bar, with a theme-aware history popup.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Netdata",
+    "description": "Status pill for a remote Netdata host, with GPU utilization history.",
+    "category": "System",
+    "allowMultiple": true,
+    "defaultSection": "right",
+    "defaults": {
+      "host": "localhost",
+      "refreshSeconds": 5,
+      "retryAttempts": 5,
+      "context": "nvidia_smi.gpu_utilization",
+      "dashboardUrl": ""
+    },
+    "schema": [
+      {
+        "key": "host",
+        "type": "string",
+        "label": "Netdata host",
+        "defaultValue": "localhost"
+      },
+      {
+        "key": "refreshSeconds",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 5
+      },
+      {
+        "key": "retryAttempts",
+        "type": "integer",
+        "label": "Failed polls before pause",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 5
+      },
+      {
+        "key": "context",
+        "type": "string",
+        "label": "Netdata context",
+        "defaultValue": "nvidia_smi.gpu_utilization"
+      },
+      {
+        "key": "dashboardUrl",
+        "type": "string",
+        "label": "Dashboard URL (blank = host)",
+        "defaultValue": ""
+      }
+    ]
+  }
+}
