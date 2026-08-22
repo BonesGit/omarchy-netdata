@@ -74,6 +74,10 @@ Item {
     var series = Model.parseSeries(payload)
     var meta = Model.parseMeta(payload)
     var value = Model.latestValue(series)
+    if (value === null) {
+      markDisconnected("no latest value")
+      return
+    }
     connected = true
     lastError = ""
     failCount = 0
@@ -103,17 +107,19 @@ Item {
     }
     var series = Model.parseSeries(payload)
     var meta = Model.parseMeta(payload)
-    connected = true
+    var value = Model.latestValue(series)
     lastError = ""
-    failCount = 0
+    if (value !== null) {
+      connected = true
+      failCount = 0
+      currentValue = value
+    }
     if (meta.nodeName) nodeName = meta.nodeName
     if (meta.title) chartTitle = meta.title
     if (meta.units) units = meta.units
     if (isFinite(meta.dbFirst)) dbFirst = meta.dbFirst
     if (isFinite(meta.dbLast)) dbLast = meta.dbLast
     points = Model.prunePoints(series)
-    var value = Model.latestValue(series)
-    if (value !== null) currentValue = value
     if (series.length) lastSampleAt = series[series.length - 1].t
     seriesUpdated()
   }
@@ -146,6 +152,7 @@ Item {
   onContextIdChanged: {
     points = []
     currentValue = null
+    connected = false
     failCount = 0
     chartTitle = Model.defaultTitle()
     refreshLatest()

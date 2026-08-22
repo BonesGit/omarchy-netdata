@@ -347,6 +347,9 @@ function visiblePoints(points, startSec, endSec) {
 // idle = no reading, low < 30%, mid 30–70%, high > 70%.
 function statusKey(connected, value) {
   if (!connected) return "idle"
+  // Number(null) is 0, which would look like a live 0% (green)
+  // before the first real sample arrives.
+  if (value === null || value === undefined || value === "") return "idle"
   var n = Number(value)
   if (!isFinite(n)) return "idle"
   if (n < LOW_USAGE) return "low"

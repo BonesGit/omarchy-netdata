@@ -14,6 +14,7 @@ BarWidget {
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
 
   readonly property color statusColor: {
+    if (!netdata.connected) return Color.muted
     var key = netdata.status
     if (key === "low") return themeGreen
     if (key === "mid") return themeYellow
