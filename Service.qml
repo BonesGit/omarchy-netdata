@@ -20,6 +20,7 @@ Item {
   property var points: []
   property string lastError: ""
   property string nodeName: ""
+  property string chartTitle: Model.defaultTitle()
   property string units: "%"
   property real dbFirst: 0
   property real dbLast: 0
@@ -78,6 +79,7 @@ Item {
     failCount = 0
     currentValue = value
     if (meta.nodeName) nodeName = meta.nodeName
+    if (meta.title) chartTitle = meta.title
     if (meta.units) units = meta.units
     if (isFinite(meta.dbFirst)) dbFirst = meta.dbFirst
     if (isFinite(meta.dbLast)) dbLast = meta.dbLast
@@ -105,6 +107,7 @@ Item {
     lastError = ""
     failCount = 0
     if (meta.nodeName) nodeName = meta.nodeName
+    if (meta.title) chartTitle = meta.title
     if (meta.units) units = meta.units
     if (isFinite(meta.dbFirst)) dbFirst = meta.dbFirst
     if (isFinite(meta.dbLast)) dbLast = meta.dbLast
@@ -136,6 +139,7 @@ Item {
     connected = false
     lastError = ""
     failCount = 0
+    chartTitle = Model.defaultTitle()
     refreshLatest()
   }
 
@@ -143,6 +147,7 @@ Item {
     points = []
     currentValue = null
     failCount = 0
+    chartTitle = Model.defaultTitle()
     refreshLatest()
   }
 

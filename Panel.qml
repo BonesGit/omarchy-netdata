@@ -36,6 +36,7 @@ Panel {
     return live ? ("Live · " + Model.formatWindow(durationSec)) : Model.formatWindow(durationSec)
   }
   readonly property var chartPoints: service ? service.points : []
+  readonly property string chartTitle: service && service.chartTitle ? service.chartTitle : Model.defaultTitle()
 
   function openDashboard() {
     var url = Model.configuredDashboardUrl(root.settings)
@@ -262,21 +263,37 @@ Panel {
           }
         }
 
-        GpuChart {
-          id: chart
+        Column {
           width: parent.width
-          height: Style.space(184)
-          points: root.chartPoints
-          windowStart: root.windowStart
-          windowEnd: root.windowEnd
-          live: root.live
-          lineColor: Color.accent
-          gridColor: Color.muted
-          textColor: root.foreground
-          crosshairColor: root.foreground
-          fontFamily: root.fontFamily
-          onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
-          onPanRequested: function(delta) { root.panBy(delta) }
+          spacing: Style.space(6)
+
+          Text {
+            width: parent.width
+            text: root.chartTitle
+            textFormat: Text.PlainText
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.subtitle
+            horizontalAlignment: Text.AlignLeft
+            elide: Text.ElideRight
+          }
+
+          GpuChart {
+            id: chart
+            width: parent.width
+            height: Style.space(184)
+            points: root.chartPoints
+            windowStart: root.windowStart
+            windowEnd: root.windowEnd
+            live: root.live
+            lineColor: Color.accent
+            gridColor: Color.muted
+            textColor: root.foreground
+            crosshairColor: root.foreground
+            fontFamily: root.fontFamily
+            onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
+            onPanRequested: function(delta) { root.panBy(delta) }
+          }
         }
 
         Item {

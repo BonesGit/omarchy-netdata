@@ -5,6 +5,7 @@
 
 var DEFAULT_HOST = "localhost"
 var DEFAULT_CONTEXT = "nvidia_smi.gpu_utilization"
+var DEFAULT_TITLE = "GPU utilization"
 var DEFAULT_PORT = "19999"
 var MIN_WINDOW_SEC = 60
 var MAX_WINDOW_SEC = 3 * 24 * 60 * 60
@@ -20,6 +21,7 @@ var MAX_HISTORY_RESPONSE_BYTES = 2 * 1024 * 1024
 var MAX_POINTS = 2048
 
 function defaultHost() { return DEFAULT_HOST }
+function defaultTitle() { return DEFAULT_TITLE }
 function defaultWindowSec() { return DEFAULT_WINDOW_SEC }
 function maxWindowSec() { return MAX_WINDOW_SEC }
 function maxLatestResponseBytes() { return MAX_LATEST_RESPONSE_BYTES }
@@ -271,7 +273,7 @@ function parseMeta(payload) {
   var summary = payload && payload.summary ? payload.summary : {}
   var node = summary.nodes && summary.nodes[0] ? summary.nodes[0] : null
   return {
-    title: view.title || "GPU utilization",
+    title: String(view.title || DEFAULT_TITLE).replace(/^\s+|\s+$/g, "") || DEFAULT_TITLE,
     units: view.units || "%",
     viewAfter: Number(view.after),
     viewBefore: Number(view.before),
