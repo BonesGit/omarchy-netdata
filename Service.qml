@@ -46,7 +46,7 @@ Item {
   function refreshLatest() {
     if (latestProc.running) return
     countedThisPoll = false
-    latestProc.command = ["curl", "-fsS", "--max-time", "4", Model.latestUrl(hostRaw, contextId)]
+    latestProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, contextId)]
     latestProc.running = true
   }
 
@@ -56,11 +56,15 @@ Item {
       return
     }
     pendingHistory = null
-    historyProc.command = ["curl", "-fsS", "--max-time", "6", Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted)]
+    historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted)]
     historyProc.running = true
   }
 
   function applyLatest(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxLatestResponseBytes())) {
+      markDisconnected("latest response too large")
+      return
+    }
     var payload = Model.parsePayload(raw)
     if (!payload || !payload.result) {
       markDisconnected("empty latest payload")
@@ -86,6 +90,10 @@ Item {
   }
 
   function applyHistory(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxHistoryResponseBytes())) {
+      lastError = "history response too large"
+      return
+    }
     var payload = Model.parsePayload(raw)
     if (!payload || !payload.result) {
       lastError = "empty history payload"

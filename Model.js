@@ -13,10 +13,20 @@ var LOW_USAGE = 30
 var HIGH_USAGE = 70
 var HOUR_SEC = 60 * 60
 var DAY_SEC = 24 * HOUR_SEC
+var MAX_LATEST_RESPONSE_BYTES = 256 * 1024
+var MAX_HISTORY_RESPONSE_BYTES = 2 * 1024 * 1024
 
 function defaultHost() { return DEFAULT_HOST }
 function defaultWindowSec() { return DEFAULT_WINDOW_SEC }
 function maxWindowSec() { return MAX_WINDOW_SEC }
+function maxLatestResponseBytes() { return MAX_LATEST_RESPONSE_BYTES }
+function maxHistoryResponseBytes() { return MAX_HISTORY_RESPONSE_BYTES }
+
+function responseWithinLimit(raw, maxBytes) {
+  var limit = Number(maxBytes)
+  if (!isFinite(limit) || limit <= 0) return true
+  return String(raw || "").length <= limit
+}
 
 function presetDuration(id) {
   if (id === "1h") return HOUR_SEC
