@@ -140,6 +140,7 @@ BarWidget {
 
       Text {
         text: root.hostLabel
+        textFormat: Text.PlainText
         color: button.foreground
         font.family: button.fontFamily
         font.pixelSize: Style.font.body

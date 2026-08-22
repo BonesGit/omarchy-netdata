@@ -114,8 +114,77 @@ function parseHost(raw) {
     host: host,
     port: port,
     origin: scheme + "://" + host + ":" + port,
-    label: host
+    label: safeHostLabel(host)
   }
+}
+
+// Display-only. Settings can be markup-shaped; AutoText and first-party
+// tooltip Text must never see <img>/<a>/path junk as a label.
+function isIPv4(value) {
+  var parts = String(value || "").split(".")
+  if (parts.length !== 4) return false
+  for (var i = 0; i < 4; i++) {
+    if (!/^\d{1,3}$/.test(parts[i])) return false
+    var n = Number(parts[i])
+    if (n > 255) return false
+  }
+  return true
+}
+
+function ipv6GroupsValid(groups, allowIpv4Tail) {
+  if (!groups || !groups.length) return false
+  for (var i = 0; i < groups.length; i++) {
+    var g = groups[i]
+    if (allowIpv4Tail && i === groups.length - 1 && g.indexOf(".") >= 0)
+      return isIPv4(g)
+    if (!/^[0-9A-Fa-f]{1,4}$/.test(g)) return false
+  }
+  return true
+}
+
+function isIPv6(value) {
+  var s = String(value || "")
+  if (!s || s.indexOf(":") < 0) return false
+  if (s.charAt(0) === "[" || s.indexOf("%") >= 0) return false
+  var halves = s.split("::")
+  if (halves.length > 2) return false
+  if (halves.length === 2) {
+    var left = halves[0] === "" ? [] : halves[0].split(":")
+    var right = halves[1] === "" ? [] : halves[1].split(":")
+    if (left.length + right.length > 7) return false
+    if (halves[0] !== "" && !ipv6GroupsValid(left, false)) return false
+    if (halves[1] !== "" && !ipv6GroupsValid(right, true)) return false
+    return true
+  }
+  var groups = s.split(":")
+  if (groups.length === 8) return ipv6GroupsValid(groups, false)
+  if (groups.length === 7 && groups[6].indexOf(".") >= 0) return ipv6GroupsValid(groups, true)
+  return false
+}
+
+function isHostname(value) {
+  var s = String(value || "")
+  if (!s || s.length > 253) return false
+  if (s.charAt(s.length - 1) === ".") s = s.slice(0, -1)
+  if (!s || s.length > 253) return false
+  var labels = s.split(".")
+  for (var i = 0; i < labels.length; i++) {
+    var lab = labels[i]
+    if (lab.length < 1 || lab.length > 63) return false
+    if (!/^[A-Za-z0-9-]+$/.test(lab)) return false
+    if (lab.charAt(0) === "-" || lab.charAt(lab.length - 1) === "-") return false
+  }
+  return true
+}
+
+function isSafeHostLabel(value) {
+  var s = String(value || "")
+  return isIPv4(s) || isIPv6(s) || isHostname(s)
+}
+
+function safeHostLabel(value) {
+  var s = String(value || "")
+  return isSafeHostLabel(s) ? s : DEFAULT_HOST
 }
 
 function hostLabel(raw) {

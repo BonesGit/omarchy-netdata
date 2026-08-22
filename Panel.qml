@@ -207,6 +207,7 @@ Panel {
               id: hostName
               width: Math.min(implicitWidth, parent.width)
               text: root.hostText
+              textFormat: Text.PlainText
               color: hostClick.containsMouse ? Color.accent : root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.title
