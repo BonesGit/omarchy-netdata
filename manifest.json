@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.bonesgit.omarchy-netdata",
   "name": "Netdata",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "author": "bonesgit",
   "license": "MIT",
   "description": "Netdata GPU utilization for the Omarchy bar, with a theme-aware history popup.",

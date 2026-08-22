@@ -108,7 +108,7 @@ Item {
     if (meta.units) units = meta.units
     if (isFinite(meta.dbFirst)) dbFirst = meta.dbFirst
     if (isFinite(meta.dbLast)) dbLast = meta.dbLast
-    points = series
+    points = Model.prunePoints(series)
     var value = Model.latestValue(series)
     if (value !== null) currentValue = value
     if (series.length) lastSampleAt = series[series.length - 1].t

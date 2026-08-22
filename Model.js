@@ -15,12 +15,16 @@ var HOUR_SEC = 60 * 60
 var DAY_SEC = 24 * HOUR_SEC
 var MAX_LATEST_RESPONSE_BYTES = 256 * 1024
 var MAX_HISTORY_RESPONSE_BYTES = 2 * 1024 * 1024
+// Hard cap independent of server timestamps. 2s polling over 3 days is
+// ~129600 points; a hostile clock can stay inside the window forever.
+var MAX_POINTS = 2048
 
 function defaultHost() { return DEFAULT_HOST }
 function defaultWindowSec() { return DEFAULT_WINDOW_SEC }
 function maxWindowSec() { return MAX_WINDOW_SEC }
 function maxLatestResponseBytes() { return MAX_LATEST_RESPONSE_BYTES }
 function maxHistoryResponseBytes() { return MAX_HISTORY_RESPONSE_BYTES }
+function maxPoints() { return MAX_POINTS }
 
 function responseWithinLimit(raw, maxBytes) {
   var limit = Number(maxBytes)
@@ -306,19 +310,24 @@ function mergePoint(points, t, v) {
   return next
 }
 
-// Drop samples older than the chart's max window so live polling cannot
-// grow the series without bound while the popup stays closed.
+// Drop samples older than the chart's max window, then enforce a hard
+// item-count cap. Time prune alone is not enough: live polling at 2s
+// retains ~129600 points over three days, and a configured or
+// compromised endpoint can keep timestamps inside that window forever.
 function prunePoints(points, newestSec) {
   if (!points || !points.length) return []
   var newest = Number(newestSec)
   if (!isFinite(newest) && points.length)
     newest = Number(points[points.length - 1].t)
-  if (!isFinite(newest)) return points
-  var cutoff = newest - MAX_WINDOW_SEC
-  var i = 0
-  while (i < points.length && Number(points[i].t) < cutoff) i++
-  if (i === 0) return points
-  return points.slice(i)
+  var start = 0
+  if (isFinite(newest)) {
+    var cutoff = newest - MAX_WINDOW_SEC
+    while (start < points.length && Number(points[start].t) < cutoff) start++
+  }
+  if (points.length - start > MAX_POINTS)
+    start = points.length - MAX_POINTS
+  if (start === 0) return points
+  return points.slice(start)
 }
 
 function visiblePoints(points, startSec, endSec) {
