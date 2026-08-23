@@ -28,6 +28,10 @@ Item {
   property bool polling: true
   property int failCount: 0
   property bool countedThisPoll: false
+  property bool latestAborted: false
+  property bool historyAborted: false
+  property bool latestSawData: false
+  property bool historySawData: false
 
   readonly property string hostRaw: Model.configuredHost(settings)
   readonly property string contextId: Model.configuredContext(settings)
@@ -44,9 +48,17 @@ Item {
     if (polling) refreshLatest()
   }
 
+  function abortIfTooLarge(proc, data, maxBytes) {
+    if (!Model.collectorOverLimit(data, maxBytes)) return false
+    if (proc.running) proc.running = false
+    return true
+  }
+
   function refreshLatest() {
     if (latestProc.running) return
     countedThisPoll = false
+    latestAborted = false
+    latestSawData = false
     latestProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, contextId)]
     latestProc.running = true
   }
@@ -57,6 +69,8 @@ Item {
       return
     }
     pendingHistory = null
+    historyAborted = false
+    historySawData = false
     historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted)]
     historyProc.running = true
   }
@@ -170,10 +184,23 @@ Item {
   Process {
     id: latestProc
     stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyLatest(text)
+      waitForEnd: false
+      onDataChanged: {
+        root.latestSawData = true
+        if (root.abortIfTooLarge(latestProc, data, Model.maxLatestResponseBytes()))
+          root.latestAborted = true
+      }
+      onStreamFinished: {
+        if (root.latestAborted) {
+          root.markDisconnected("latest response too large")
+          return
+        }
+        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
+        root.applyLatest(root.latestSawData ? text : "")
+      }
     }
     onExited: function(code) {
+      if (root.latestAborted) return
       if (code !== 0) root.markDisconnected("latest fetch failed")
     }
   }
@@ -181,11 +208,23 @@ Item {
   Process {
     id: historyProc
     stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyHistory(text)
+      waitForEnd: false
+      onDataChanged: {
+        root.historySawData = true
+        if (root.abortIfTooLarge(historyProc, data, Model.maxHistoryResponseBytes()))
+          root.historyAborted = true
+      }
+      onStreamFinished: {
+        if (root.historyAborted) {
+          root.lastError = "history response too large"
+          return
+        }
+        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
+        root.applyHistory(root.historySawData ? text : "")
+      }
     }
     onExited: function(code) {
-      if (code !== 0) root.lastError = "history fetch failed"
+      if (!root.historyAborted && code !== 0) root.lastError = "history fetch failed"
       if (root.pendingHistory) {
         var req = root.pendingHistory
         root.pendingHistory = null

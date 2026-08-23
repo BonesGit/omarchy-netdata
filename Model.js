@@ -34,6 +34,21 @@ function responseWithinLimit(raw, maxBytes) {
   return String(raw || "").length <= limit
 }
 
+// Mid-stream size check for StdioCollector.data. Prefer byteLength so a
+// hostile body is measured as buffered bytes, not UTF-16 string length.
+function collectorByteLength(data) {
+  if (data === null || data === undefined) return 0
+  if (typeof data.byteLength === "number" && isFinite(data.byteLength)) return data.byteLength
+  if (typeof data.length === "number" && isFinite(data.length)) return data.length
+  return String(data).length
+}
+
+function collectorOverLimit(data, maxBytes) {
+  var limit = Number(maxBytes)
+  if (!isFinite(limit) || limit <= 0) return false
+  return collectorByteLength(data) > limit
+}
+
 function presetDuration(id) {
   if (id === "1h") return HOUR_SEC
   if (id === "3h") return 3 * HOUR_SEC
