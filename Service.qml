@@ -30,11 +30,21 @@ Item {
   property bool countedThisPoll: false
   property bool latestAborted: false
   property bool historyAborted: false
+  property bool tempAborted: false
+  property bool tempHistoryAborted: false
   property bool latestSawData: false
   property bool historySawData: false
+  property bool tempSawData: false
+  property bool tempHistorySawData: false
+  property var tempValue: null
+  property var tempPoints: []
+  property string tempUnits: "°C"
+  property string tempTitle: Model.defaultTempTitle()
 
   readonly property string hostRaw: Model.configuredHost(settings)
   readonly property string contextId: Model.configuredContext(settings)
+  readonly property var tempQuery: Model.configuredTempQuery(settings)
+  readonly property string tempContextId: tempQuery.context
   readonly property string hostLabel: Model.hostLabel(hostRaw)
   readonly property int refreshMs: Model.configuredRefreshMs(settings)
   readonly property int retryAttempts: Model.configuredRetryAttempts(settings)
@@ -55,24 +65,57 @@ Item {
   }
 
   function refreshLatest() {
-    if (latestProc.running) return
+    if (latestProc.running) {
+      refreshTemp()
+      return
+    }
     countedThisPoll = false
     latestAborted = false
     latestSawData = false
     latestProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, contextId)]
     latestProc.running = true
+    refreshTemp()
+  }
+
+  function refreshTemp() {
+    if (!tempContextId) {
+      tempValue = null
+      return
+    }
+    if (tempProc.running) return
+    tempAborted = false
+    tempSawData = false
+    tempProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, tempContextId, tempQuery)]
+    tempProc.running = true
   }
 
   function refreshHistory(startSec, endSec, pointsWanted) {
     if (historyProc.running) {
       pendingHistory = { start: startSec, end: endSec, points: pointsWanted }
+    } else {
+      pendingHistory = null
+      historyAborted = false
+      historySawData = false
+      historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted)]
+      historyProc.running = true
+    }
+    refreshTempHistory(startSec, endSec, pointsWanted)
+  }
+
+  function refreshTempHistory(startSec, endSec, pointsWanted) {
+    if (!tempContextId) {
+      tempPoints = []
       return
     }
-    pendingHistory = null
-    historyAborted = false
-    historySawData = false
-    historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted)]
-    historyProc.running = true
+    if (tempHistoryProc.running) {
+      pendingTempHistory = { start: startSec, end: endSec, points: pointsWanted }
+      return
+    }
+    pendingTempHistory = null
+    tempHistoryAborted = false
+    tempHistorySawData = false
+    tempHistoryProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, tempContextId, startSec, endSec, pointsWanted, tempQuery)]
+    tempHistoryProc.running = true
   }
 
   function applyLatest(raw) {
@@ -107,6 +150,41 @@ Item {
       points = Model.prunePoints(Model.mergePoint(points, last.t, last.v), last.t)
     }
     seriesUpdated()
+  }
+
+  function applyTemp(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxLatestResponseBytes())) {
+      tempValue = null
+      return
+    }
+    var payload = Model.parsePayload(raw)
+    if (!payload || !payload.result) {
+      tempValue = null
+      return
+    }
+    var series = Model.parseSeries(payload)
+    var meta = Model.parseMeta(payload)
+    var value = Model.latestValue(series)
+    if (value !== null) tempValue = value
+    if (meta.units) tempUnits = meta.units
+    if (series.length) {
+      var last = series[series.length - 1]
+      tempPoints = Model.prunePoints(Model.mergePoint(tempPoints, last.t, last.v), last.t)
+    }
+  }
+
+  function applyTempHistory(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxHistoryResponseBytes()))
+      return
+    var payload = Model.parsePayload(raw)
+    if (!payload || !payload.result)
+      return
+    var series = Model.parseSeries(payload)
+    var meta = Model.parseMeta(payload)
+    var value = Model.latestValue(series)
+    if (value !== null) tempValue = value
+    if (meta.units) tempUnits = meta.units
+    tempPoints = Model.prunePoints(series)
   }
 
   function applyHistory(raw) {
@@ -152,24 +230,36 @@ Item {
   }
 
   property var pendingHistory: null
+  property var pendingTempHistory: null
 
   onHostRawChanged: {
     points = []
+    tempPoints = []
     currentValue = null
+    tempValue = null
     connected = false
     lastError = ""
     failCount = 0
     chartTitle = Model.defaultTitle()
+    tempTitle = Model.defaultTempTitle()
     refreshLatest()
   }
 
   onContextIdChanged: {
     points = []
+    tempPoints = []
     currentValue = null
+    tempValue = null
     connected = false
     failCount = 0
     chartTitle = Model.defaultTitle()
     refreshLatest()
+  }
+
+  onTempContextIdChanged: {
+    tempValue = null
+    tempPoints = []
+    if (polling) refreshTemp()
   }
 
   Timer {
@@ -206,6 +296,24 @@ Item {
   }
 
   Process {
+    id: tempProc
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: {
+        root.tempSawData = true
+        if (root.abortIfTooLarge(tempProc, data, Model.maxLatestResponseBytes()))
+          root.tempAborted = true
+      }
+      onStreamFinished: {
+        if (root.tempAborted)
+          return
+        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
+        root.applyTemp(root.tempSawData ? text : "")
+      }
+    }
+  }
+
+  Process {
     id: historyProc
     stdout: StdioCollector {
       waitForEnd: false
@@ -229,6 +337,31 @@ Item {
         var req = root.pendingHistory
         root.pendingHistory = null
         Qt.callLater(function() { root.refreshHistory(req.start, req.end, req.points) })
+      }
+    }
+  }
+
+  Process {
+    id: tempHistoryProc
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: {
+        root.tempHistorySawData = true
+        if (root.abortIfTooLarge(tempHistoryProc, data, Model.maxHistoryResponseBytes()))
+          root.tempHistoryAborted = true
+      }
+      onStreamFinished: {
+        if (root.tempHistoryAborted)
+          return
+        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
+        root.applyTempHistory(root.tempHistorySawData ? text : "")
+      }
+    }
+    onExited: function(code) {
+      if (root.pendingTempHistory) {
+        var req = root.pendingTempHistory
+        root.pendingTempHistory = null
+        Qt.callLater(function() { root.refreshTempHistory(req.start, req.end, req.points) })
       }
     }
   }

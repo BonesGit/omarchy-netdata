@@ -30,6 +30,14 @@ Panel {
   readonly property bool polling: service ? service.polling : true
   readonly property var currentValue: service ? service.currentValue : null
   readonly property string percentText: connected ? Model.formatPercent(currentValue) : "—"
+  readonly property string tempText: {
+    if (!service) return ""
+    if (service.tempValue === null || service.tempValue === undefined) return ""
+    return Model.formatTemp(service.tempValue)
+  }
+  readonly property bool showTemp: !!(service && service.tempContextId)
+  readonly property var tempPoints: service ? service.tempPoints : []
+  readonly property string tempTitle: service && service.tempTitle ? service.tempTitle : Model.defaultTempTitle()
   readonly property string metaText: {
     if (!polling) return "Paused"
     if (!connected) return "Offline"
@@ -265,34 +273,96 @@ Panel {
 
         Column {
           width: parent.width
-          spacing: Style.space(6)
+          spacing: Style.space(10)
 
-          Text {
+          Column {
             width: parent.width
-            text: root.chartTitle
-            textFormat: Text.PlainText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            horizontalAlignment: Text.AlignLeft
-            elide: Text.ElideRight
+            spacing: Style.space(6)
+
+            Text {
+              width: parent.width
+              text: root.chartTitle
+              textFormat: Text.PlainText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+              horizontalAlignment: Text.AlignLeft
+              elide: Text.ElideRight
+            }
+
+            GpuChart {
+              id: chart
+              width: parent.width
+              height: Style.space(184)
+              points: root.chartPoints
+              windowStart: root.windowStart
+              windowEnd: root.windowEnd
+              live: root.live
+              lineColor: Color.accent
+              gridColor: Color.muted
+              textColor: root.foreground
+              crosshairColor: root.foreground
+              fontFamily: root.fontFamily
+              onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
+              onPanRequested: function(delta) { root.panBy(delta) }
+            }
           }
 
-          GpuChart {
-            id: chart
+          Column {
             width: parent.width
-            height: Style.space(184)
-            points: root.chartPoints
-            windowStart: root.windowStart
-            windowEnd: root.windowEnd
-            live: root.live
-            lineColor: Color.accent
-            gridColor: Color.muted
-            textColor: root.foreground
-            crosshairColor: root.foreground
-            fontFamily: root.fontFamily
-            onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
-            onPanRequested: function(delta) { root.panBy(delta) }
+            visible: root.showTemp
+            height: visible ? implicitHeight : 0
+            spacing: Style.space(6)
+
+            Item {
+              width: parent.width
+              implicitHeight: Math.max(tempTitleLabel.implicitHeight, tempValueLabel.implicitHeight)
+
+              Text {
+                id: tempTitleLabel
+                anchors.left: parent.left
+                anchors.right: tempValueLabel.left
+                anchors.rightMargin: Style.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.tempTitle
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                elide: Text.ElideRight
+              }
+
+              Text {
+                id: tempValueLabel
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.tempText !== "" ? root.tempText : "—"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+              }
+            }
+
+            GpuChart {
+              id: tempChart
+              width: parent.width
+              height: Math.round(chart.height / 3)
+              points: root.tempPoints
+              windowStart: root.windowStart
+              windowEnd: root.windowEnd
+              live: root.live
+              autoScale: true
+              compact: true
+              temperature: true
+              lineColor: Color.accent
+              gridColor: Color.muted
+              textColor: root.foreground
+              crosshairColor: root.foreground
+              fontFamily: root.fontFamily
+              onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
+              onPanRequested: function(delta) { root.panBy(delta) }
+            }
           }
         }
 

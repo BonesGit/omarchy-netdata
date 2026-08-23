@@ -1,13 +1,13 @@
 # omarchy-netdata
 
-Omarchy Quattro menubar widget for tracking GPU usage of a remote host, while running local AI, via a [Netdata](https://www.netdata.cloud/) remote host. Shows GPU utilization in the menubar and a historical chart in a popup.
+Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) remote host. Useful when running local AI on anther dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Will be adding more metrics over time.
 
-![GPU usage](preview.png)
+![GPU usage](preview1.4.png)
 
 ## Features
 
 - Bar pill with a status mark and the configured hostname
-- Click the pill for a theme-following popup with current usage and a historical line chart
+- Click the pill for a theme-following popup with current usage, a historical GPU utilization chart, and a smaller GPU temperature chart locked to the same time window
 - Scroll to zoom the time window; drag to pan
 - Preset chips: 3D, 2D, 24H, 6H, 3H, 1H, and Live
 - Colors follow the active Omarchy theme (`Color` / `Style`)
@@ -17,7 +17,7 @@ Omarchy Quattro menubar widget for tracking GPU usage of a remote host, while ru
   - Green below 30% GPU, yellow from 30–70%, red above 70%
 - Green and yellow stay semantic so themes that alias `green` to gold still read correctly
 
-Default host is `localhost` (port `19999`). The metric is Netdata **v3** context `nvidia_smi.gpu_utilization` (not the per-GPU chart id).
+Default host is `localhost` (port `19999`). The default `gpu` is `nvidia`, which uses Netdata **v3** context `nvidia_smi.gpu_utilization`. Set `gpu` to `amd` for AMD. Leave `gpu` blank for the same nvidia charts. Set `context` / `tempContext` to override either chart.
 
 ## Install
 
@@ -46,7 +46,7 @@ After editing this repo, rsync again, or run `./install-dev.sh` from the clone. 
 - **[Netdata](https://www.netdata.cloud/)** agent reachable from your machine (default `localhost:19999`). The plugin polls the Netdata **v3** HTTP API.
 - `curl` — used for live and history fetches. Omarchy already ships it.
 - `omarchy-launch-browser` — opens the Netdata dashboard when you click the hostname in the popup.
-- **Default metric:** `nvidia_smi.gpu_utilization`. Your Netdata host needs the NVIDIA SMI collector and a GPU that exposes utilization. Change `context` in settings for other metrics or non-NVIDIA hosts.
+- **Default GPU:** `nvidia` (`nvidia_smi.gpu_utilization`). `amd` uses `amdgpu.gpu_utilization`. Blank `gpu` is the same as `nvidia`. Override either chart with `context` / `tempContext`.
 
 The plugin only reads metrics from the host you configure. It does not install Netdata, collect GPU data itself, or modify your Netdata configuration.
 
@@ -63,10 +63,10 @@ omarchy plugin remove io.github.bonesgit.omarchy-netdata
 Set from the bar or `shell.json`:
 
 ```bash
-omarchy bar set io.github.bonesgit.omarchy-netdata host localhost
+omarchy bar set io.github.bonesgit.omarchy-netdata host myhost
 omarchy bar set io.github.bonesgit.omarchy-netdata refreshSeconds 5
 omarchy bar set io.github.bonesgit.omarchy-netdata retryAttempts 5
-omarchy bar set io.github.bonesgit.omarchy-netdata context nvidia_smi.gpu_utilization
+omarchy bar set io.github.bonesgit.omarchy-netdata gpu amd
 omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost:19999/#menu_system_submenu_gpu
 ```
 
@@ -76,6 +76,10 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 
 `retryAttempts` is consecutive failed live polls before the widget auto-pauses (default 5). The wait between those polls is `refreshSeconds` (default 5). A successful poll resets the counter. Play resumes polling.
 
+`gpu` is `nvidia` or `amd` (default `nvidia`). Blank is the same as `nvidia`. That pick supplies both the utilization and temperature charts. Set `context` or `tempContext` to override one or both. If you override `context` and leave `tempContext` blank, temperature is auto-picked from the override context (so an AMD context still gets the `amdgpu` sensors instance).
+
+The bar stays utilization-only. Temperature is a smaller popup chart under utilization, sharing pan/zoom and showing the current degrees next to its title. A failed temp poll never pauses the widget.
+
 `allowMultiple` is on, so you can put another copy on the bar later and point it at a different machine.
 
 ## Popup
@@ -84,7 +88,7 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 - Click the hostname in the popup: open Netdata in the browser
 - Right or middle click: refresh now
 - Scroll on the chart: zoom time range around the cursor (up to 3 days)
-- Drag the chart: pan in time
+- Drag the chart: pan in time. The temperature chart stays locked to the same window.
 - Play/pause (bottom left): start/stop automatic Netdata polling. Consecutive failed polls auto-pause after `retryAttempts`.
 - `3D` / `2D` / `24H` / `6H` / `3H` / `1H` / `Live` chips: jump the window
 - `+` / `-` or up / down: zoom

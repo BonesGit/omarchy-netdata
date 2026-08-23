@@ -17,11 +17,38 @@ Item {
   property color crosshairColor: Color.foreground
   property string fontFamily: Style.font.family
   property bool live: true
+  property bool autoScale: false
+  property bool compact: false
+  property bool temperature: false
+  property real yMin: 0
+  property real yMax: 100
 
   readonly property real windowSpan: Math.max(1, windowEnd - windowStart)
   readonly property var plotPoints: Model.visiblePoints(points, windowStart, windowEnd)
-  readonly property real axisBand: Style.space(18)
+  readonly property real axisBand: compact ? Style.space(4) : Style.space(18)
   readonly property real plotHeight: Math.max(1, height - axisBand)
+  readonly property var valueRange: {
+    if (!autoScale) return { min: yMin, max: yMax }
+    var lo = Infinity
+    var hi = -Infinity
+    var pts = plotPoints
+    for (var i = 0; i < pts.length; i++) {
+      var n = Number(pts[i].v)
+      if (!isFinite(n)) continue
+      if (n < lo) lo = n
+      if (n > hi) hi = n
+    }
+    if (!isFinite(lo)) return { min: yMin, max: yMax }
+    if (lo === hi) {
+      lo = Math.max(0, lo - 5)
+      hi = hi + 5
+    } else {
+      var pad = Math.max(2, (hi - lo) * 0.15)
+      lo -= pad
+      hi += pad
+    }
+    return { min: lo, max: hi }
+  }
 
   property real hoverX: -1
   property real hoverT: NaN
@@ -42,7 +69,27 @@ Item {
   function yForValue(v) {
     var n = Number(v)
     if (!isFinite(n)) return canvas.height
-    return canvas.height - axisBand - (Util.clamp(n, 0, 100) / 100) * plotHeight
+    var lo = Number(valueRange.min)
+    var hi = Number(valueRange.max)
+    var span = hi - lo
+    if (!isFinite(span) || span <= 0) span = 1
+    var t = (n - lo) / span
+    t = Math.max(0, Math.min(1, t))
+    return canvas.height - axisBand - t * plotHeight
+  }
+
+  function yTicks() {
+    if (!autoScale) return [0, 25, 50, 75, 100]
+    var lo = Number(valueRange.min)
+    var hi = Number(valueRange.max)
+    if (!isFinite(lo) || !isFinite(hi)) return []
+    if (compact) return [lo, hi]
+    return [lo, (lo + hi) / 2, hi]
+  }
+
+  function hoverText() {
+    var value = temperature ? Model.formatTemp(hoverV) : (Model.formatPercent(hoverV) + "%")
+    return value + "  " + Model.formatHoverTick(hoverT, windowSpan)
   }
 
   function updateHover(x) {
@@ -61,6 +108,8 @@ Item {
   onPointsChanged: canvas.requestPaint()
   onWindowStartChanged: canvas.requestPaint()
   onWindowEndChanged: canvas.requestPaint()
+  onAutoScaleChanged: canvas.requestPaint()
+  onCompactChanged: canvas.requestPaint()
   onLineColorChanged: canvas.requestPaint()
   onGridColorChanged: canvas.requestPaint()
   onTextColorChanged: canvas.requestPaint()
@@ -86,7 +135,7 @@ Item {
       ctx.textAlign = "left"
       ctx.textBaseline = "top"
 
-      var ticks = [0, 25, 50, 75, 100]
+      var ticks = root.yTicks()
       var plotBottom = root.plotHeight
       for (var i = 0; i < ticks.length; i++) {
         var y = root.yForValue(ticks[i])
@@ -94,7 +143,7 @@ Item {
         ctx.moveTo(0, y)
         ctx.lineTo(w, y)
         ctx.stroke()
-        if (ticks[i] !== 0) ctx.fillText(String(ticks[i]), 2, Math.max(0, y + 2))
+        if (!root.compact && ticks[i] !== 0) ctx.fillText(String(Math.round(ticks[i])), 2, Math.max(0, y + 2))
       }
 
       var xTicks = Model.axisTicks(root.windowStart, root.windowEnd, Math.max(4, Math.min(6, Math.round(w / 78))))
@@ -108,6 +157,7 @@ Item {
         ctx.lineTo(tx, plotBottom)
         ctx.stroke()
 
+        if (root.compact) continue
         var label = Model.formatAxisTick(xTicks[xt], root.windowStart, root.windowEnd, prevTick)
         prevTick = xTicks[xt]
         ctx.fillStyle = Util.alpha(root.textColor, 0.55).toString()
@@ -232,7 +282,7 @@ Item {
     Text {
       id: hoverLabel
       anchors.centerIn: parent
-      text: Model.formatPercent(root.hoverV) + "%  " + Model.formatHoverTick(root.hoverT, root.windowSpan)
+      text: root.hoverText()
       color: root.textColor
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption

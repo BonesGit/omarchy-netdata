@@ -4,8 +4,20 @@
 // objects so Panel, Service, and the chart can share the same parsing.
 
 var DEFAULT_HOST = "localhost"
-var DEFAULT_CONTEXT = "nvidia_smi.gpu_utilization"
+var NVIDIA_CONTEXT = "nvidia_smi.gpu_utilization"
+var DEFAULT_CONTEXT = NVIDIA_CONTEXT
 var DEFAULT_TITLE = "GPU utilization"
+var DEFAULT_TEMP_TITLE = "GPU temperature"
+var NVIDIA_TEMP_CONTEXT = "nvidia_smi.gpu_temperature"
+var AMD_CONTEXT = "amdgpu.gpu_utilization"
+var AMD_TEMP_CONTEXT = "system.hw.sensor.temperature.input"
+var AMD_TEMP_SCOPE = "*amdgpu*"
+var GPU_NVIDIA = "nvidia"
+var GPU_AMD = "amd"
+var GPU_PRESETS = {
+  nvidia: { context: NVIDIA_CONTEXT, tempContext: NVIDIA_TEMP_CONTEXT, tempScope: "" },
+  amd: { context: AMD_CONTEXT, tempContext: AMD_TEMP_CONTEXT, tempScope: AMD_TEMP_SCOPE }
+}
 var DEFAULT_PORT = "19999"
 var MIN_WINDOW_SEC = 60
 var MAX_WINDOW_SEC = 3 * 24 * 60 * 60
@@ -22,6 +34,7 @@ var MAX_POINTS = 2048
 
 function defaultHost() { return DEFAULT_HOST }
 function defaultTitle() { return DEFAULT_TITLE }
+function defaultTempTitle() { return DEFAULT_TEMP_TITLE }
 function defaultWindowSec() { return DEFAULT_WINDOW_SEC }
 function maxWindowSec() { return MAX_WINDOW_SEC }
 function maxLatestResponseBytes() { return MAX_LATEST_RESPONSE_BYTES }
@@ -74,9 +87,74 @@ function configuredHost(settings) {
   return String(raw || DEFAULT_HOST).replace(/^\s+|\s+$/g, "") || DEFAULT_HOST
 }
 
+function settingString(settings, key) {
+  if (!settings || settings[key] === undefined || settings[key] === null) return ""
+  return String(settings[key]).replace(/^\s+|\s+$/g, "")
+}
+
+function normalizeGpu(value) {
+  var s = String(value || "").replace(/^\s+|\s+$/g, "").toLowerCase()
+  if (s === GPU_AMD) return GPU_AMD
+  return GPU_NVIDIA
+}
+
+// Blank or nvidia -> nvidia presets. amd -> amd presets.
+function resolvedGpu(settings) {
+  return normalizeGpu(settings && settings.gpu)
+}
+
+function gpuPreset(gpu) {
+  return GPU_PRESETS[gpu] || GPU_PRESETS[GPU_NVIDIA]
+}
+
+function contextOverride(settings) {
+  return settingString(settings, "context")
+}
+
+function tempContextOverride(settings) {
+  return settingString(settings, "tempContext")
+}
+
 function configuredContext(settings) {
-  var raw = settings && settings.context !== undefined && settings.context !== null ? settings.context : DEFAULT_CONTEXT
-  return String(raw || DEFAULT_CONTEXT).replace(/^\s+|\s+$/g, "") || DEFAULT_CONTEXT
+  var override = contextOverride(settings)
+  if (override) return override
+  return gpuPreset(resolvedGpu(settings)).context
+}
+
+function isTemperatureContext(context) {
+  return String(context || "").toLowerCase().indexOf("temp") >= 0
+}
+
+// Companion GPU temp for the popup. NVIDIA has its own context;
+// AMD exposes edge temp as a sensors instance, not amdgpu.*.
+function derivedTempQuery(context) {
+  var ctx = String(context || "")
+  if (!ctx) return { context: "", scopeInstances: "" }
+  if (ctx.indexOf("nvidia_smi.") === 0) {
+    if (isTemperatureContext(ctx)) return { context: "", scopeInstances: "" }
+    return { context: NVIDIA_TEMP_CONTEXT, scopeInstances: "" }
+  }
+  if (ctx.indexOf("amdgpu.") === 0)
+    return { context: AMD_TEMP_CONTEXT, scopeInstances: AMD_TEMP_SCOPE }
+  if (ctx === AMD_TEMP_CONTEXT)
+    return { context: ctx, scopeInstances: AMD_TEMP_SCOPE }
+  return { context: "", scopeInstances: "" }
+}
+
+function configuredTempQuery(settings) {
+  var util = configuredContext(settings)
+  var tempOver = tempContextOverride(settings)
+  if (tempOver) {
+    if (tempOver === util) return { context: "", scopeInstances: "" }
+    var extra = derivedTempQuery(tempOver)
+    return {
+      context: tempOver,
+      scopeInstances: extra.scopeInstances || (tempOver === AMD_TEMP_CONTEXT ? AMD_TEMP_SCOPE : "")
+    }
+  }
+  if (contextOverride(settings)) return derivedTempQuery(util)
+  var preset = gpuPreset(resolvedGpu(settings))
+  return { context: preset.tempContext, scopeInstances: preset.tempScope }
 }
 
 function configuredDashboardUrl(settings) {
@@ -212,7 +290,7 @@ function hostLabel(raw) {
   return parseHost(raw).label
 }
 
-function dataUrl(rawHost, context, after, before, points) {
+function dataUrl(rawHost, context, after, before, points, extra) {
   var parsed = parseHost(rawHost)
   var ctx = encodeURIComponent(context || DEFAULT_CONTEXT)
   var url = parsed.origin + "/api/v3/data?contexts=" + ctx
@@ -221,15 +299,17 @@ function dataUrl(rawHost, context, after, before, points) {
     + "&group=average&format=json"
   if (before !== undefined && before !== null && before !== "")
     url += "&before=" + encodeURIComponent(String(before))
+  var scope = extra && extra.scopeInstances ? String(extra.scopeInstances) : ""
+  if (scope) url += "&scope_instances=" + encodeURIComponent(scope)
   return url
 }
 
-function latestUrl(rawHost, context) {
-  return dataUrl(rawHost, context, -60, 0, 12)
+function latestUrl(rawHost, context, extra) {
+  return dataUrl(rawHost, context, -60, 0, 12, extra)
 }
 
-function historyUrl(rawHost, context, startSec, endSec, points) {
-  return dataUrl(rawHost, context, Math.floor(startSec), Math.floor(endSec), points)
+function historyUrl(rawHost, context, startSec, endSec, points, extra) {
+  return dataUrl(rawHost, context, Math.floor(startSec), Math.floor(endSec), points, extra)
 }
 
 function parsePayload(raw) {
@@ -418,6 +498,13 @@ function formatPercent(value) {
   if (!isFinite(n)) return "—"
   if (Math.abs(n - Math.round(n)) < 0.05) return String(Math.round(n))
   return n.toFixed(1)
+}
+
+function formatTemp(value) {
+  if (value === null || value === undefined || value === "") return "—"
+  var n = Number(value)
+  if (!isFinite(n)) return "—"
+  return String(Math.round(n)) + "°"
 }
 
 function formatWindow(seconds) {

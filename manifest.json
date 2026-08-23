@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.bonesgit.omarchy-netdata",
   "name": "Netdata Monitor",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "author": "bonesgit",
   "license": "MIT",
-  "description": "Netdata GPU utilization monitor for the Omarchy bar, with a theme-aware history popup.",
+  "description": "Netdata GPU utilization and temperature monitor for the Omarchy bar, with history popup.",
   "kinds": [
     "bar-widget"
   ],
@@ -22,7 +22,9 @@
       "host": "localhost",
       "refreshSeconds": 5,
       "retryAttempts": 5,
-      "context": "nvidia_smi.gpu_utilization",
+      "gpu": "nvidia",
+      "context": "",
+      "tempContext": "",
       "dashboardUrl": ""
     },
     "schema": [
@@ -51,10 +53,24 @@
         "defaultValue": 5
       },
       {
+        "key": "gpu",
+        "type": "enum",
+        "label": "GPU",
+        "options": ["nvidia", "amd"],
+        "defaultValue": "nvidia",
+        "description": "Picks the Netdata utilization and temperature charts. Blank is the same as nvidia. context and tempContext override those picks."
+      },
+      {
         "key": "context",
         "type": "string",
-        "label": "Netdata context",
-        "defaultValue": "nvidia_smi.gpu_utilization"
+        "label": "Netdata context override",
+        "defaultValue": ""
+      },
+      {
+        "key": "tempContext",
+        "type": "string",
+        "label": "GPU temp context override",
+        "defaultValue": ""
       },
       {
         "key": "dashboardUrl",
