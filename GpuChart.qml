@@ -343,7 +343,7 @@ Item {
 
   Rectangle {
     visible: root.hoverX >= 0 && root.finiteValue(root.hoverV)
-    x: Math.min(Math.max(0, root.hoverX + Style.space(8)), Math.max(0, parent.width - implicitWidth))
+    x: Math.min(Math.max(0, root.hoverX - implicitWidth - Style.space(8)), Math.max(0, parent.width - implicitWidth))
     y: Style.space(4)
     implicitWidth: hoverLabel.implicitWidth + Style.space(10)
     implicitHeight: hoverLabel.implicitHeight + Style.space(6)
