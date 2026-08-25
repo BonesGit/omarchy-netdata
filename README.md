@@ -12,7 +12,7 @@ Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Ne
 - Preset chips: 3D, 2D, 24H, 6H, 3H, 1H, and Live
 - Colors follow the active Omarchy theme (`Color` / `Style`)
 - Status mark states:
-  - Grey square outline when polling is paused
+  - Grey square outline when polling is stopped
   - Grey solid circle when polling but the host is unreachable
   - Green below 30% GPU, yellow from 30–70%, red above 70%
 - Green and yellow stay semantic so themes that alias `green` to gold still read correctly
@@ -67,6 +67,7 @@ omarchy bar set io.github.bonesgit.omarchy-netdata host myhost
 omarchy bar set io.github.bonesgit.omarchy-netdata refreshSeconds 5
 omarchy bar set io.github.bonesgit.omarchy-netdata retryAttempts 5
 omarchy bar set io.github.bonesgit.omarchy-netdata gpu amd
+omarchy bar set io.github.bonesgit.omarchy-netdata split true
 omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost:19999/#menu_system_submenu_gpu
 ```
 
@@ -74,11 +75,13 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 
 `dashboardUrl` is what the popup hostname opens in the browser. Leave it empty to use `http://<host>:<port>`.
 
-`retryAttempts` is consecutive failed live polls before the widget auto-pauses (default 5). The wait between those polls is `refreshSeconds` (default 5). A successful poll resets the counter. Play resumes polling.
+`retryAttempts` is consecutive failed live polls before the widget auto-stops (default 5). The wait between those polls is `refreshSeconds` (default 5). A successful poll resets the counter. Start resumes polling.
 
 `gpu` is `nvidia` or `amd` (default `nvidia`). Blank is the same as `nvidia`. That pick supplies both the utilization and temperature charts. Set `context` or `tempContext` to override one or both. If you override `context` and leave `tempContext` blank, temperature is auto-picked from the override context (so an AMD context still gets the `amdgpu` sensors instance).
 
-The bar stays utilization-only. Temperature is a smaller popup chart under utilization, sharing pan/zoom and showing the current degrees next to its title. A failed temp poll never pauses the widget.
+`split` (default off) draws one line per GPU on both charts instead of one averaged line. The second line uses the theme's urgent color. The bar pill and hero number show the hottest GPU. Per-GPU values appear in the tooltip and the temperature label. Split mode adds Netdata's `group_by=instance` to the query.
+
+The bar stays utilization-only. Temperature is a smaller popup chart under utilization, sharing pan/zoom and showing the current degrees next to its title. A failed temp poll never stops the widget.
 
 `allowMultiple` is on, so you can put another copy on the bar later and point it at a different machine.
 
@@ -89,7 +92,7 @@ The bar stays utilization-only. Temperature is a smaller popup chart under utili
 - Right or middle click: refresh now
 - Scroll on the chart: zoom time range around the cursor (up to 3 days)
 - Drag the chart: pan in time. The temperature chart stays locked to the same window.
-- Play/pause (bottom left): start/stop automatic Netdata polling. Consecutive failed polls auto-pause after `retryAttempts`.
+- Stop switch (top right): start/stop automatic Netdata polling. Consecutive failed polls auto-stop after `retryAttempts`.
 - `3D` / `2D` / `24H` / `6H` / `3H` / `1H` / `Live` chips: jump the window
 - `+` / `-` or up / down: zoom
 - left / right: pan

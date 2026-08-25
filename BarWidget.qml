@@ -25,8 +25,10 @@ BarWidget {
   readonly property real openPanelIndicatorWidth: root.vertical ? 0 : contentRow.implicitWidth
   readonly property real openPanelIndicatorHeight: Math.max(Style.space(10), Math.round(Style.bar.iconSlot * 0.55))
   readonly property string tooltip: {
-    if (!netdata.polling) return hostLabel + " · paused"
+    if (!netdata.polling) return hostLabel + " · stopped"
     if (!netdata.connected) return hostLabel + " · offline"
+    if (netdata.splitEnabled && netdata.splitValues && netdata.splitValues.length > 1)
+      return hostLabel + " GPU " + Model.formatValueList(netdata.splitValues, Model.formatPercent, "%")
     return hostLabel + " GPU " + Model.formatPercent(netdata.currentValue) + "%"
   }
 
@@ -76,7 +78,7 @@ BarWidget {
     settings: root.settings
   }
 
-  // Paused (not polling): grey square outline.
+  // Stopped (not polling): grey square outline.
   // Playing + unreachable: grey solid circle (statusColor fallback).
   // Playing + connected: filled circle in green / yellow / red.
   component StatusMark: Rectangle {

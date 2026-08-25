@@ -9,9 +9,11 @@ Item {
   id: root
 
   property var points: []
+  property var series: []
   property real windowStart: 0
   property real windowEnd: 0
   property color lineColor: Color.accent
+  property color secondaryColor: Color.urgent
   property color gridColor: Color.muted
   property color textColor: Color.foreground
   property color crosshairColor: Color.foreground
@@ -25,18 +27,31 @@ Item {
 
   readonly property real windowSpan: Math.max(1, windowEnd - windowStart)
   readonly property var plotPoints: Model.visiblePoints(points, windowStart, windowEnd)
+  readonly property var plotSeries: {
+    var out = []
+    var list = series
+    if (!list || !list.length) return out
+    for (var i = 0; i < list.length; i++)
+      out.push(Model.visiblePoints(list[i].points, windowStart, windowEnd))
+    return out
+  }
+  readonly property bool useSeries: !!(series && series.length)
   readonly property real axisBand: compact ? Style.space(4) : Style.space(18)
   readonly property real plotHeight: Math.max(1, height - axisBand)
   readonly property var valueRange: {
     if (!autoScale) return { min: yMin, max: yMax }
     var lo = Infinity
     var hi = -Infinity
-    var pts = plotPoints
-    for (var i = 0; i < pts.length; i++) {
-      var n = Number(pts[i].v)
-      if (!isFinite(n)) continue
-      if (n < lo) lo = n
-      if (n > hi) hi = n
+    var lists = useSeries ? plotSeries : [plotPoints]
+    for (var s = 0; s < lists.length; s++) {
+      var pts = lists[s] || []
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].v === null || pts[i].v === undefined || pts[i].v === "") continue
+        var n = Number(pts[i].v)
+        if (!isFinite(n)) continue
+        if (n < lo) lo = n
+        if (n > hi) hi = n
+      }
     }
     if (!isFinite(lo)) return { min: yMin, max: yMax }
     if (lo === hi) {
@@ -53,6 +68,7 @@ Item {
   property real hoverX: -1
   property real hoverT: NaN
   property var hoverV: null
+  property var hoverValues: []
   property real wheelAcc: 0
 
   signal zoomRequested(real factor, real anchorSec)
@@ -87,30 +103,76 @@ Item {
     return [lo, (lo + hi) / 2, hi]
   }
 
+  function strokeColor(index) {
+    if (index === 0) return root.lineColor
+    if (index === 1) return root.secondaryColor
+    return Util.alpha(Color.foreground, 0.5)
+  }
+
+  function finiteValue(v) {
+    if (v === null || v === undefined || v === "") return false
+    return isFinite(Number(v))
+  }
+
+  function formatHoverValue(v) {
+    if (temperature) return Model.formatTemp(v)
+    if (!finiteValue(v)) return "—"
+    return Model.formatPercent(v) + "%"
+  }
+
   function hoverText() {
-    var value = temperature ? Model.formatTemp(hoverV) : (Model.formatPercent(hoverV) + "%")
+    if (useSeries && series.length > 1) {
+      var parts = []
+      for (var i = 0; i < series.length; i++) {
+        var name = series[i].name || ("GPU" + (i + 1))
+        parts.push(name + " " + formatHoverValue(hoverValues[i]))
+      }
+      return parts.join(" · ") + "  " + Model.formatHoverTick(hoverT, windowSpan)
+    }
+    var value = formatHoverValue(hoverV)
     return value + "  " + Model.formatHoverTick(hoverT, windowSpan)
   }
 
+  function clearHover() {
+    hoverX = -1
+    hoverT = NaN
+    hoverV = null
+    hoverValues = []
+  }
+
   function updateHover(x) {
-    if (x < 0 || x > width || plotPoints.length === 0) {
-      hoverX = -1
-      hoverT = NaN
-      hoverV = null
+    var lists = useSeries ? plotSeries : [plotPoints]
+    var empty = true
+    for (var e = 0; e < lists.length; e++) {
+      if (lists[e] && lists[e].length) { empty = false; break }
+    }
+    if (x < 0 || x > width || empty) {
+      clearHover()
+      canvas.requestPaint()
       return
     }
     hoverX = x
     hoverT = timeForX(x)
-    hoverV = Model.interpolate(plotPoints, hoverT)
+    var vals = []
+    var first = null
+    for (var i = 0; i < lists.length; i++) {
+      var v = Model.interpolate(lists[i], hoverT)
+      vals.push(v)
+      if (first === null && finiteValue(v)) first = v
+    }
+    hoverValues = vals
+    hoverV = first
     canvas.requestPaint()
   }
 
   onPointsChanged: canvas.requestPaint()
+  onSeriesChanged: canvas.requestPaint()
   onWindowStartChanged: canvas.requestPaint()
   onWindowEndChanged: canvas.requestPaint()
   onAutoScaleChanged: canvas.requestPaint()
   onCompactChanged: canvas.requestPaint()
   onLineColorChanged: canvas.requestPaint()
+  onSecondaryColorChanged: canvas.requestPaint()
   onGridColorChanged: canvas.requestPaint()
   onTextColorChanged: canvas.requestPaint()
   onWidthChanged: canvas.requestPaint()
@@ -143,7 +205,7 @@ Item {
         ctx.moveTo(0, y)
         ctx.lineTo(w, y)
         ctx.stroke()
-        if (!root.compact && ticks[i] !== 0) ctx.fillText(String(Math.round(ticks[i])), 2, Math.max(0, y + 2))
+        if (!root.compact && ticks[i] !== 0) ctx.fillText(String(Math.trunc(ticks[i])), 2, Math.max(0, y + 2))
       }
 
       var xTicks = Model.axisTicks(root.windowStart, root.windowEnd, Math.max(4, Math.min(6, Math.round(w / 78))))
@@ -167,42 +229,51 @@ Item {
         ctx.fillText(label, Math.max(0, Math.min(w, tx)), plotBottom + 2)
       }
 
-      var series = root.plotPoints
-      if (!series.length) return
-
-      ctx.beginPath()
-      var started = false
-      var firstX = 0
-      var lastX = 0
-      for (var p = 0; p < series.length; p++) {
-        if (!isFinite(Number(series[p].v))) {
-          started = false
-          continue
-        }
-        var x = root.xForTime(series[p].t)
-        var yv = root.yForValue(series[p].v)
-        if (!started) {
-          ctx.moveTo(x, yv)
-          firstX = x
-          started = true
-        } else {
-          ctx.lineTo(x, yv)
-        }
-        lastX = x
+      var lists = root.useSeries ? root.plotSeries : [root.plotPoints]
+      var hasLine = false
+      for (var check = 0; check < lists.length; check++) {
+        if (lists[check] && lists[check].length) { hasLine = true; break }
       }
+      if (!hasLine) return
 
-      if (started) {
-        ctx.strokeStyle = root.lineColor.toString()
-        ctx.lineWidth = 1.75
-        ctx.lineJoin = "round"
-        ctx.lineCap = "round"
-        ctx.stroke()
+      for (var si = 0; si < lists.length; si++) {
+        var line = lists[si] || []
+        ctx.beginPath()
+        var started = false
+        var firstX = 0
+        var lastX = 0
+        for (var p = 0; p < line.length; p++) {
+          if (line[p].v === null || line[p].v === undefined || line[p].v === "" || !isFinite(Number(line[p].v))) {
+            started = false
+            continue
+          }
+          var x = root.xForTime(line[p].t)
+          var yv = root.yForValue(line[p].v)
+          if (!started) {
+            ctx.moveTo(x, yv)
+            firstX = x
+            started = true
+          } else {
+            ctx.lineTo(x, yv)
+          }
+          lastX = x
+        }
 
-        ctx.lineTo(lastX, plotBottom)
-        ctx.lineTo(firstX, plotBottom)
-        ctx.closePath()
-        ctx.fillStyle = Util.alpha(root.lineColor, 0.16).toString()
-        ctx.fill()
+        if (started) {
+          ctx.strokeStyle = root.strokeColor(si).toString()
+          ctx.lineWidth = 1.75
+          ctx.lineJoin = "round"
+          ctx.lineCap = "round"
+          ctx.stroke()
+
+          if (si === 0) {
+            ctx.lineTo(lastX, plotBottom)
+            ctx.lineTo(firstX, plotBottom)
+            ctx.closePath()
+            ctx.fillStyle = Util.alpha(root.lineColor, 0.16).toString()
+            ctx.fill()
+          }
+        }
       }
 
       if (root.hoverX >= 0 && isFinite(root.hoverT)) {
@@ -213,11 +284,15 @@ Item {
         ctx.lineTo(root.hoverX, plotBottom)
         ctx.stroke()
 
-        if (root.hoverV !== null && isFinite(Number(root.hoverV))) {
+        var dots = root.useSeries && root.hoverValues && root.hoverValues.length
+          ? root.hoverValues
+          : [root.hoverV]
+        for (var d = 0; d < dots.length; d++) {
+          if (!root.finiteValue(dots[d])) continue
           var hx = root.hoverX
-          var hy = root.yForValue(root.hoverV)
+          var hy = root.yForValue(dots[d])
           ctx.beginPath()
-          ctx.fillStyle = root.lineColor.toString()
+          ctx.fillStyle = root.strokeColor(d).toString()
           ctx.arc(hx, hy, 3.2, 0, Math.PI * 2)
           ctx.fill()
         }
@@ -243,9 +318,7 @@ Item {
     onCanceled: dragging = false
     onExited: {
       if (!dragging) {
-        root.hoverX = -1
-        root.hoverT = NaN
-        root.hoverV = null
+        root.clearHover()
         canvas.requestPaint()
       }
     }
@@ -269,7 +342,7 @@ Item {
   }
 
   Rectangle {
-    visible: root.hoverX >= 0 && root.hoverV !== null && isFinite(Number(root.hoverV))
+    visible: root.hoverX >= 0 && root.finiteValue(root.hoverV)
     x: Math.min(Math.max(0, root.hoverX + Style.space(8)), Math.max(0, parent.width - implicitWidth))
     y: Style.space(4)
     implicitWidth: hoverLabel.implicitWidth + Style.space(10)

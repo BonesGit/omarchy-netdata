@@ -30,16 +30,29 @@ Panel {
   readonly property bool polling: service ? service.polling : true
   readonly property var currentValue: service ? service.currentValue : null
   readonly property string percentText: connected ? Model.formatPercent(currentValue) : "—"
+  readonly property string utilText: {
+    if (!service || !connected) return ""
+    var splitVals = service.splitValues
+    if (splitVals && splitVals.length > 1)
+      return Model.formatValueList(splitVals, Model.formatPercent, "%")
+    return Model.formatPercent(currentValue) + "%"
+  }
   readonly property string tempText: {
     if (!service) return ""
+    var splitTemps = service.splitTempValues
+    if (splitTemps && splitTemps.length > 1)
+      return Model.formatValueList(splitTemps, Model.formatTemp)
     if (service.tempValue === null || service.tempValue === undefined) return ""
     return Model.formatTemp(service.tempValue)
   }
   readonly property bool showTemp: !!(service && service.tempContextId)
   readonly property var tempPoints: service ? service.tempPoints : []
+  readonly property var chartSeries: service ? service.series : []
+  readonly property var tempSeriesList: service ? service.tempSeries : []
+  readonly property bool splitEnabled: service ? service.splitEnabled : false
   readonly property string tempTitle: service && service.tempTitle ? service.tempTitle : Model.defaultTempTitle()
   readonly property string metaText: {
-    if (!polling) return "Paused"
+    if (!polling) return "Stopped"
     if (!connected) return "Offline"
     return live ? ("Live · " + Model.formatWindow(durationSec)) : Model.formatWindow(durationSec)
   }
@@ -126,6 +139,8 @@ Panel {
     Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
   }
 
+  onSplitEnabledChanged: if (opened) refreshHistory()
+
   Connections {
     target: root.service
     function onSeriesUpdated() {
@@ -185,7 +200,7 @@ Panel {
 
         Item {
           width: parent.width
-          implicitHeight: Math.max(heroDot.height, heroLabels.implicitHeight, heroPercent.implicitHeight)
+          implicitHeight: Math.max(heroDot.height, heroLabels.implicitHeight, heroInlineValue.implicitHeight, pollSwitch.implicitHeight)
 
           Rectangle {
             id: heroDot
@@ -203,18 +218,33 @@ Panel {
             }
           }
 
+          ToggleSwitch {
+            id: pollSwitch
+            checked: root.polling
+            foreground: root.foreground
+            accent: Color.accent
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            onToggled: if (root.service) root.service.togglePolling()
+
+            PanelToolTip {
+              visible: pollSwitch.containsMouse
+              text: root.polling ? "Stop updates" : "Start updates"
+              fontFamily: root.fontFamily
+            }
+          }
+
           Column {
             id: heroLabels
             anchors.left: heroDot.right
             anchors.leftMargin: Style.space(12)
-            anchors.right: heroPercent.left
-            anchors.rightMargin: Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(hostName.implicitWidth, Math.max(0, parent.width - heroDot.width - Style.space(12) - heroInlineValue.implicitWidth - Style.space(8) - pollSwitch.width - Style.space(12)))
             spacing: Style.space(2)
 
             Text {
               id: hostName
-              width: Math.min(implicitWidth, parent.width)
+              width: parent.width
               text: root.hostText
               textFormat: Text.PlainText
               color: hostClick.containsMouse ? Color.accent : root.foreground
@@ -246,8 +276,9 @@ Panel {
           }
 
           Row {
-            id: heroPercent
-            anchors.right: parent.right
+            id: heroInlineValue
+            anchors.left: heroLabels.right
+            anchors.leftMargin: Style.space(8)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
 
@@ -279,15 +310,34 @@ Panel {
             width: parent.width
             spacing: Style.space(6)
 
-            Text {
+            Item {
               width: parent.width
-              text: root.chartTitle
-              textFormat: Text.PlainText
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.subtitle
-              horizontalAlignment: Text.AlignLeft
-              elide: Text.ElideRight
+              implicitHeight: Math.max(utilTitleLabel.implicitHeight, utilValueLabel.implicitHeight)
+
+              Text {
+                id: utilTitleLabel
+                anchors.left: parent.left
+                anchors.right: utilValueLabel.left
+                anchors.rightMargin: Style.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.chartTitle
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                elide: Text.ElideRight
+              }
+
+              Text {
+                id: utilValueLabel
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.utilText !== "" ? root.utilText : "—"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+              }
             }
 
             GpuChart {
@@ -295,10 +345,12 @@ Panel {
               width: parent.width
               height: Style.space(184)
               points: root.chartPoints
+              series: root.chartSeries
               windowStart: root.windowStart
               windowEnd: root.windowEnd
               live: root.live
               lineColor: Color.accent
+              secondaryColor: Color.urgent
               gridColor: Color.muted
               textColor: root.foreground
               crosshairColor: root.foreground
@@ -349,6 +401,7 @@ Panel {
               width: parent.width
               height: Math.round(chart.height / 3)
               points: root.tempPoints
+              series: root.tempSeriesList
               windowStart: root.windowStart
               windowEnd: root.windowEnd
               live: root.live
@@ -356,6 +409,7 @@ Panel {
               compact: true
               temperature: true
               lineColor: Color.accent
+              secondaryColor: Color.urgent
               gridColor: Color.muted
               textColor: root.foreground
               crosshairColor: root.foreground
@@ -370,21 +424,6 @@ Panel {
           width: parent.width
           implicitHeight: Style.spacing.controlHeight
           height: implicitHeight
-
-          Button {
-            id: pollButton
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: (root.service && root.service.polling) ? "󰏤" : "󰐊"
-            tooltipText: (root.service && root.service.polling) ? "Pause updates" : "Resume updates"
-            bordered: true
-            foreground: root.foreground
-            background: "transparent"
-            accent: Color.accent
-            fontFamily: root.fontFamily
-            fontSize: Style.font.icon
-            onClicked: if (root.service) root.service.togglePolling()
-          }
 
           ButtonGroup {
             id: rangeButtons

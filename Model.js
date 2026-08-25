@@ -301,7 +301,36 @@ function dataUrl(rawHost, context, after, before, points, extra) {
     url += "&before=" + encodeURIComponent(String(before))
   var scope = extra && extra.scopeInstances ? String(extra.scopeInstances) : ""
   if (scope) url += "&scope_instances=" + encodeURIComponent(scope)
+  var groupBy = extra && extra.groupBy ? String(extra.groupBy) : ""
+  if (groupBy) url += "&group_by=" + encodeURIComponent(groupBy)
   return url
+}
+
+function configuredSplit(settings) {
+  if (!settings || settings.split === undefined || settings.split === null) return false
+  var v = settings.split
+  if (v === true || v === 1) return true
+  if (v === false || v === 0) return false
+  var s = String(v).replace(/^\s+|\s+$/g, "").toLowerCase()
+  return s === "true" || s === "1"
+}
+
+function queryExtra(tempQuery, split) {
+  var extra = {}
+  if (tempQuery && tempQuery.scopeInstances) extra.scopeInstances = tempQuery.scopeInstances
+  if (split) extra.groupBy = "instance"
+  return extra
+}
+
+function seriesKey(label) {
+  var s = String(label || "")
+  var m = s.match(/gpu-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/i)
+  return m ? m[0].toLowerCase() : s
+}
+
+function presentNumber(value) {
+  if (value === null || value === undefined || value === "") return false
+  return isFinite(Number(value))
 }
 
 function latestUrl(rawHost, context, extra) {
@@ -360,6 +389,156 @@ function parseSeries(payload) {
   }
   points.sort(function(a, b) { return a.t - b.t })
   return points
+}
+
+function parseSeriesSplit(payload) {
+  var result = payload && payload.result ? payload.result : null
+  var rows = result && result.data ? result.data : []
+  var labels = result && result.labels ? result.labels : []
+  var colCount = 0
+  var i, c
+  for (i = 0; i < rows.length; i++) {
+    if (rows[i] && rows[i].length > colCount) colCount = rows[i].length
+  }
+  var valueCols = Math.max(0, colCount - 1)
+  var cols = []
+  for (c = 0; c < valueCols; c++) {
+    var label = labels[c + 1] || ""
+    cols.push({ key: seriesKey(label), index: c + 1, points: [] })
+  }
+  for (i = 0; i < rows.length; i++) {
+    var row = rows[i]
+    if (!row || row.length < 1) continue
+    var t = Number(row[0])
+    if (!isFinite(t)) continue
+    for (c = 0; c < cols.length; c++) {
+      var raw = c + 1 < row.length ? row[c + 1] : null
+      var v = null
+      if (presentNumber(raw)) v = Number(raw)
+      cols[c].points.push({ t: t, v: v })
+    }
+  }
+  var out = []
+  for (c = 0; c < cols.length; c++) {
+    cols[c].points.sort(function(a, b) { return a.t - b.t })
+    out.push({
+      name: "GPU" + (c + 1),
+      key: cols[c].key,
+      points: cols[c].points
+    })
+  }
+  return out
+}
+
+function alignSeriesByKey(canonical, other) {
+  var list = other || []
+  var canon = canonical || []
+  if (!canon.length) return list
+  var byKey = {}
+  var i
+  for (i = 0; i < list.length; i++) {
+    var key = list[i] && list[i].key ? list[i].key : ""
+    byKey[key] = list[i]
+  }
+  var out = []
+  var used = {}
+  for (i = 0; i < canon.length; i++) {
+    var ck = canon[i] && canon[i].key ? canon[i].key : ""
+    var match = byKey[ck]
+    if (!match) continue
+    out.push({
+      name: canon[i].name,
+      key: match.key,
+      points: match.points
+    })
+    used[ck] = true
+  }
+  for (i = 0; i < list.length; i++) {
+    var ok = list[i] && list[i].key ? list[i].key : ""
+    if (used[ok]) continue
+    out.push({
+      name: "GPU" + (out.length + 1),
+      key: list[i].key,
+      points: list[i].points
+    })
+  }
+  return out
+}
+
+function latestValuePerSeries(seriesList) {
+  var out = []
+  var list = seriesList || []
+  for (var i = 0; i < list.length; i++) {
+    var pts = list[i] && list[i].points
+    var found = null
+    if (pts) {
+      for (var j = pts.length - 1; j >= 0; j--) {
+        if (presentNumber(pts[j].v)) {
+          found = Number(pts[j].v)
+          break
+        }
+      }
+    }
+    out.push(found)
+  }
+  return out
+}
+
+function maxOf(values) {
+  var hi = null
+  if (!values) return null
+  for (var i = 0; i < values.length; i++) {
+    if (!presentNumber(values[i])) continue
+    var n = Number(values[i])
+    if (hi === null || n > hi) hi = n
+  }
+  return hi
+}
+
+function mergeSeriesPoint(seriesList, t, vPerSeries) {
+  var list = seriesList || []
+  var values = vPerSeries || []
+  var next = []
+  var i
+  if (values.length !== list.length) {
+    for (i = 0; i < list.length; i++) next.push(list[i])
+    return next
+  }
+  for (i = 0; i < list.length; i++) {
+    var src = list[i] || {}
+    next.push({
+      name: src.name,
+      key: src.key,
+      points: mergePoint(src.points, t, values[i])
+    })
+  }
+  return next
+}
+
+function pruneSeries(seriesList, newestSec) {
+  var next = []
+  var list = seriesList || []
+  for (var i = 0; i < list.length; i++) {
+    var src = list[i] || {}
+    next.push({
+      name: src.name,
+      key: src.key,
+      points: prunePoints(src.points, newestSec)
+    })
+  }
+  return next
+}
+
+function formatValueList(values, formatter, suffix) {
+  var extra = suffix ? String(suffix) : ""
+  var parts = []
+  var list = values || []
+  for (var i = 0; i < list.length; i++) {
+    var formatted = formatter(list[i])
+    if (extra && formatted !== "—") formatted += extra
+    parts.push(formatted)
+  }
+  return parts.join(" / ")
 }
 
 function parseMeta(payload) {
@@ -494,17 +673,17 @@ function parseThemeColors(raw) {
 }
 
 function formatPercent(value) {
+  if (value === null || value === undefined || value === "") return "—"
   var n = Number(value)
   if (!isFinite(n)) return "—"
-  if (Math.abs(n - Math.round(n)) < 0.05) return String(Math.round(n))
-  return n.toFixed(1)
+  return String(Math.trunc(n))
 }
 
 function formatTemp(value) {
   if (value === null || value === undefined || value === "") return "—"
   var n = Number(value)
   if (!isFinite(n)) return "—"
-  return String(Math.round(n)) + "°"
+  return String(Math.trunc(n)) + "°"
 }
 
 function formatWindow(seconds) {
@@ -671,7 +850,7 @@ function interpolate(points, t) {
   var prev = null
   for (var i = 0; i < points.length; i++) {
     var p = points[i]
-    if (!isFinite(Number(p.v))) continue
+    if (!presentNumber(p.v)) continue
     if (p.t === ts) return Number(p.v)
     if (p.t > ts) {
       if (!prev) return Number(p.v)

@@ -38,6 +38,10 @@ Item {
   property bool tempHistorySawData: false
   property var tempValue: null
   property var tempPoints: []
+  property var series: []
+  property var tempSeries: []
+  property var splitValues: []
+  property var splitTempValues: []
   property string tempUnits: "°C"
   property string tempTitle: Model.defaultTempTitle()
 
@@ -48,6 +52,7 @@ Item {
   readonly property string hostLabel: Model.hostLabel(hostRaw)
   readonly property int refreshMs: Model.configuredRefreshMs(settings)
   readonly property int retryAttempts: Model.configuredRetryAttempts(settings)
+  readonly property bool splitEnabled: Model.configuredSplit(settings)
   readonly property string status: Model.statusKey(connected, currentValue)
 
   signal seriesUpdated()
@@ -64,6 +69,72 @@ Item {
     return true
   }
 
+  function wrapSingle(points) {
+    return [{ name: "", key: "", points: points }]
+  }
+
+  function parseChartSeries(payload) {
+    if (splitEnabled) return Model.parseSeriesSplit(payload)
+    return wrapSingle(Model.parseSeries(payload))
+  }
+
+  function parseTempChartSeries(payload) {
+    var parsed = parseChartSeries(payload)
+    if (series.length) return Model.alignSeriesByKey(series, parsed)
+    return parsed
+  }
+
+  function lastRow(parsed) {
+    if (!parsed || !parsed.length || !parsed[0].points || !parsed[0].points.length)
+      return null
+    var lastT = parsed[0].points[parsed[0].points.length - 1].t
+    var values = []
+    for (var i = 0; i < parsed.length; i++) {
+      var pts = parsed[i].points
+      values.push(pts && pts.length ? pts[pts.length - 1].v : null)
+    }
+    return { t: lastT, values: values }
+  }
+
+  function replaceWithLastSample(parsed) {
+    var last = lastRow(parsed)
+    if (!last) return []
+    var next = []
+    for (var i = 0; i < parsed.length; i++) {
+      next.push({
+        name: parsed[i].name,
+        key: parsed[i].key,
+        points: [{ t: last.t, v: last.values[i] }]
+      })
+    }
+    return next
+  }
+
+  function adoptSeries(next) {
+    series = next
+    points = next.length ? next[0].points : []
+    splitValues = Model.latestValuePerSeries(next)
+    if (tempSeries.length) adoptTempSeries(tempSeries)
+  }
+
+  function adoptTempSeries(next) {
+    var aligned = series.length ? Model.alignSeriesByKey(series, next) : next
+    tempSeries = aligned
+    tempPoints = aligned.length ? aligned[0].points : []
+    splitTempValues = Model.latestValuePerSeries(aligned)
+  }
+
+  function clearSeriesState() {
+    series = []
+    tempSeries = []
+    points = []
+    tempPoints = []
+    splitValues = []
+    splitTempValues = []
+    currentValue = null
+    tempValue = null
+  }
+
   function refreshLatest() {
     if (latestProc.running) {
       refreshTemp()
@@ -72,7 +143,7 @@ Item {
     countedThisPoll = false
     latestAborted = false
     latestSawData = false
-    latestProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, contextId)]
+    latestProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, contextId, Model.queryExtra(null, splitEnabled))]
     latestProc.running = true
     refreshTemp()
   }
@@ -85,7 +156,7 @@ Item {
     if (tempProc.running) return
     tempAborted = false
     tempSawData = false
-    tempProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, tempContextId, tempQuery)]
+    tempProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, tempContextId, Model.queryExtra(tempQuery, splitEnabled))]
     tempProc.running = true
   }
 
@@ -96,7 +167,7 @@ Item {
       pendingHistory = null
       historyAborted = false
       historySawData = false
-      historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted)]
+      historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted, Model.queryExtra(null, splitEnabled))]
       historyProc.running = true
     }
     refreshTempHistory(startSec, endSec, pointsWanted)
@@ -114,7 +185,7 @@ Item {
     pendingTempHistory = null
     tempHistoryAborted = false
     tempHistorySawData = false
-    tempHistoryProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, tempContextId, startSec, endSec, pointsWanted, tempQuery)]
+    tempHistoryProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, tempContextId, startSec, endSec, pointsWanted, Model.queryExtra(tempQuery, splitEnabled))]
     tempHistoryProc.running = true
   }
 
@@ -128,9 +199,10 @@ Item {
       markDisconnected("empty latest payload")
       return
     }
-    var series = Model.parseSeries(payload)
+    var parsed = parseChartSeries(payload)
     var meta = Model.parseMeta(payload)
-    var value = Model.latestValue(series)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
     if (value === null) {
       markDisconnected("no latest value")
       return
@@ -139,15 +211,20 @@ Item {
     lastError = ""
     failCount = 0
     currentValue = value
+    splitValues = values
     if (meta.nodeName) nodeName = meta.nodeName
     if (meta.title) chartTitle = meta.title
     if (meta.units) units = meta.units
     if (isFinite(meta.dbFirst)) dbFirst = meta.dbFirst
     if (isFinite(meta.dbLast)) dbLast = meta.dbLast
-    if (series.length) {
-      var last = series[series.length - 1]
+    var last = lastRow(parsed)
+    if (last) {
       lastSampleAt = last.t
-      points = Model.prunePoints(Model.mergePoint(points, last.t, last.v), last.t)
+      var next = series.length !== parsed.length
+        ? replaceWithLastSample(parsed)
+        : Model.mergeSeriesPoint(series, last.t, last.values)
+      adoptSeries(Model.pruneSeries(next, last.t))
+      splitValues = values
     }
     seriesUpdated()
   }
@@ -162,14 +239,20 @@ Item {
       tempValue = null
       return
     }
-    var series = Model.parseSeries(payload)
+    var parsed = parseTempChartSeries(payload)
     var meta = Model.parseMeta(payload)
-    var value = Model.latestValue(series)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
     if (value !== null) tempValue = value
+    splitTempValues = values
     if (meta.units) tempUnits = meta.units
-    if (series.length) {
-      var last = series[series.length - 1]
-      tempPoints = Model.prunePoints(Model.mergePoint(tempPoints, last.t, last.v), last.t)
+    var last = lastRow(parsed)
+    if (last) {
+      var next = tempSeries.length !== parsed.length
+        ? replaceWithLastSample(parsed)
+        : Model.mergeSeriesPoint(tempSeries, last.t, last.values)
+      adoptTempSeries(Model.pruneSeries(next, last.t))
+      splitTempValues = values
     }
   }
 
@@ -179,12 +262,14 @@ Item {
     var payload = Model.parsePayload(raw)
     if (!payload || !payload.result)
       return
-    var series = Model.parseSeries(payload)
+    var parsed = parseTempChartSeries(payload)
     var meta = Model.parseMeta(payload)
-    var value = Model.latestValue(series)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
     if (value !== null) tempValue = value
+    splitTempValues = values
     if (meta.units) tempUnits = meta.units
-    tempPoints = Model.prunePoints(series)
+    adoptTempSeries(Model.pruneSeries(parsed))
   }
 
   function applyHistory(raw) {
@@ -197,22 +282,25 @@ Item {
       lastError = "empty history payload"
       return
     }
-    var series = Model.parseSeries(payload)
+    var parsed = parseChartSeries(payload)
     var meta = Model.parseMeta(payload)
-    var value = Model.latestValue(series)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
     lastError = ""
     if (value !== null) {
       connected = true
       failCount = 0
       currentValue = value
     }
+    splitValues = values
     if (meta.nodeName) nodeName = meta.nodeName
     if (meta.title) chartTitle = meta.title
     if (meta.units) units = meta.units
     if (isFinite(meta.dbFirst)) dbFirst = meta.dbFirst
     if (isFinite(meta.dbLast)) dbLast = meta.dbLast
-    points = Model.prunePoints(series)
-    if (series.length) lastSampleAt = series[series.length - 1].t
+    adoptSeries(Model.pruneSeries(parsed))
+    if (parsed.length && parsed[0].points && parsed[0].points.length)
+      lastSampleAt = parsed[0].points[parsed[0].points.length - 1].t
     seriesUpdated()
   }
 
@@ -233,10 +321,7 @@ Item {
   property var pendingTempHistory: null
 
   onHostRawChanged: {
-    points = []
-    tempPoints = []
-    currentValue = null
-    tempValue = null
+    clearSeriesState()
     connected = false
     lastError = ""
     failCount = 0
@@ -246,10 +331,7 @@ Item {
   }
 
   onContextIdChanged: {
-    points = []
-    tempPoints = []
-    currentValue = null
-    tempValue = null
+    clearSeriesState()
     connected = false
     failCount = 0
     chartTitle = Model.defaultTitle()
@@ -259,7 +341,14 @@ Item {
   onTempContextIdChanged: {
     tempValue = null
     tempPoints = []
+    tempSeries = []
+    splitTempValues = []
     if (polling) refreshTemp()
+  }
+
+  onSplitEnabledChanged: {
+    clearSeriesState()
+    refreshLatest()
   }
 
   Timer {
