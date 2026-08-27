@@ -1,7 +1,7 @@
 .pragma library
 
 // Netdata v3 helpers for the bar widget. Keep this file free of QML
-// objects so Panel, Service, and the chart can share the same parsing.
+// objects so Panel, Poller, and the chart can share the same parsing.
 
 var DEFAULT_HOST = "localhost"
 var NVIDIA_CONTEXT = "nvidia_smi.gpu_utilization"
@@ -304,6 +304,15 @@ function dataUrl(rawHost, context, after, before, points, extra) {
   var groupBy = extra && extra.groupBy ? String(extra.groupBy) : ""
   if (groupBy) url += "&group_by=" + encodeURIComponent(groupBy)
   return url
+}
+
+// Dual-monitor pills with the same host+charts share one poller.
+// split and refreshSeconds update that poller; they do not fork it.
+function pollerKey(settings) {
+  var origin = parseHost(configuredHost(settings)).origin
+  var ctx = configuredContext(settings)
+  var temp = configuredTempQuery(settings)
+  return origin + "\t" + ctx + "\t" + (temp.context || "") + "\t" + (temp.scopeInstances || "")
 }
 
 function configuredSplit(settings) {

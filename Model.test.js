@@ -256,4 +256,37 @@ assertEqual(model.formatValueList([5], model.formatPercent, "%"), "5%", "format 
 const interp = model.interpolate([{ t: 100, v: 10 }, { t: 101, v: null }, { t: 102, v: 30 }], 101.5)
 assertEqual(interp, 25, "interpolate skips null cells")
 
+assertEqual(
+  model.pollerKey({ host: "razorback" }),
+  model.pollerKey({ host: "http://razorback:19999" }),
+  "razorback host aliases share a poller"
+)
+assertEqual(
+  model.pollerKey({ host: "razorback", split: true }),
+  model.pollerKey({ host: "razorback", split: false, refreshSeconds: 10 }),
+  "split and refresh do not fork a poller"
+)
+assertEqual(
+  model.pollerKey({}),
+  model.pollerKey({ host: "localhost" }),
+  "blank settings share the localhost nvidia poller"
+)
+if (model.pollerKey({ host: "razorback" }) === model.pollerKey({ host: "localhost", gpu: "amd" })) {
+  console.error("FAIL razorback nvidia and localhost amd must not share a poller")
+  process.exitCode = 1
+} else {
+  console.log("ok razorback nvidia and localhost amd are distinct pollers")
+}
+if (model.pollerKey({ host: "localhost", gpu: "amd" }) === model.pollerKey({ host: "localhost", gpu: "nvidia" })) {
+  console.error("FAIL localhost amd and nvidia must not share a poller")
+  process.exitCode = 1
+} else {
+  console.log("ok localhost amd and nvidia are distinct pollers")
+}
+assertEqual(
+  model.pollerKey({ host: "localhost", context: "system.cpu" }) === model.pollerKey({ host: "localhost" }),
+  false,
+  "context override forks a poller"
+)
+
 if (!process.exitCode) console.log("all tests passed")

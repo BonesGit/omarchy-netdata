@@ -9,23 +9,28 @@ BarWidget {
   id: root
   // moduleName is injected by the bar. Binding it here makes the
   // property read-only and injectProps() throws before settings land.
+  //
+  // Polling lives in the plugin `service` singleton. Dual-monitor pills
+  // with the same host+charts share one Poller.
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
 
+  property var netdata: null
+
   readonly property color statusColor: {
-    if (!netdata.connected) return Color.muted
+    if (!netdata || !netdata.connected) return Color.muted
     var key = netdata.status
     if (key === "low") return themeGreen
     if (key === "mid") return themeYellow
     if (key === "high") return Color.urgent
     return Color.muted
   }
-  readonly property string hostLabel: netdata.hostLabel
+  readonly property string hostLabel: netdata ? netdata.hostLabel : Model.hostLabel(Model.configuredHost(root.settings))
   readonly property real openPanelIndicatorWidth: root.vertical ? 0 : contentRow.implicitWidth
   readonly property real openPanelIndicatorHeight: Math.max(Style.space(10), Math.round(Style.bar.iconSlot * 0.55))
   readonly property string tooltip: {
-    if (!netdata.polling) return hostLabel + " · stopped"
+    if (!netdata || !netdata.polling) return hostLabel + " · stopped"
     if (!netdata.connected) return hostLabel + " · offline"
     if (netdata.splitEnabled && netdata.splitValues && netdata.splitValues.length > 1)
       return hostLabel + " GPU " + Model.formatValueList(netdata.splitValues, Model.formatPercent, "%")
@@ -34,6 +39,17 @@ BarWidget {
 
   property color themeGreen: "#3ecf6a"
   property color themeYellow: "#e0b44b"
+
+  function bindService() {
+    if (!root.moduleName) return
+    if (!bar || !bar.shell || typeof bar.shell.serviceFor !== "function") return
+    var s = bar.shell.serviceFor("io.github.bonesgit.omarchy-netdata")
+    if (!s || typeof s.pollerFor !== "function") return
+    var poller = s.pollerFor(root.settings)
+    if (!poller) return
+    if (netdata !== poller) netdata = poller
+    injectPanel()
+  }
 
   function open() {
     if (panelLoader.item) panelLoader.item.open()
@@ -48,7 +64,7 @@ BarWidget {
     if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
   }
   function refresh() {
-    netdata.refreshLatest()
+    if (netdata) netdata.refreshLatest()
     if (panelLoader.item && panelLoader.item.refreshHistory) panelLoader.item.refreshHistory()
   }
 
@@ -66,16 +82,17 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  onBarChanged: injectPanel()
-  onSettingsChanged: {
-    netdata.settings = root.settings
-    injectPanel()
-  }
+  onBarChanged: bindService()
+  onSettingsChanged: bindService()
+  onNetdataChanged: injectPanel()
   onStatusColorChanged: if (panelLoader.item && "statusColor" in panelLoader.item) panelLoader.item.statusColor = statusColor
 
-  Service {
-    id: netdata
-    settings: root.settings
+  Timer {
+    interval: 200
+    running: root.netdata === null
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.bindService()
   }
 
   // Stopped (not polling): grey square outline.
@@ -84,9 +101,9 @@ BarWidget {
   component StatusMark: Rectangle {
     width: Style.space(8)
     height: Style.space(8)
-    radius: netdata.polling ? width / 2 : 0
-    color: netdata.polling ? root.statusColor : "transparent"
-    border.width: netdata.polling ? 0 : 1
+    radius: netdata && netdata.polling ? width / 2 : 0
+    color: netdata && netdata.polling ? root.statusColor : "transparent"
+    border.width: netdata && netdata.polling ? 0 : 1
     border.color: Color.muted
 
     Behavior on color {

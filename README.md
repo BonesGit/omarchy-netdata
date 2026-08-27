@@ -39,7 +39,13 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.bonesgit.omarchy-netdata --section right --after omarchy.tray
 ```
 
-After editing this repo, rsync again, or run `./install-dev.sh` from the clone. Files saved under `~/.config/omarchy/plugins/io.github.bonesgit.omarchy-netdata/` reload automatically; `omarchy-shell shell rescanPlugins` forces discovery.
+After editing this repo, rsync again and restart the shell. Live bar instances do not pick up plugin-dir copies on their own; `omarchy-shell shell rescanPlugins` is not enough.
+
+```bash
+rsync -a --delete --exclude .git ./ ~/.config/omarchy/plugins/io.github.bonesgit.omarchy-netdata/
+omarchy plugin validate ~/.config/omarchy/plugins/io.github.bonesgit.omarchy-netdata
+omarchy restart shell
+```
 
 ## Dependencies
 
@@ -83,7 +89,7 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 
 The bar stays utilization-only. Temperature is a smaller popup chart under utilization, sharing pan/zoom and showing the current degrees next to its title. A failed temp poll never stops the widget.
 
-`allowMultiple` is on, so you can put another copy on the bar later and point it at a different machine.
+`allowMultiple` is on, so you can put another copy on the bar later and point it at a different machine. Dual-monitor copies of the same host share one poller, so online/offline and start/stop stay in sync.
 
 ## Popup
 
@@ -108,7 +114,8 @@ The bar stays utilization-only. Temperature is a smaller popup chart under utili
 manifest.json      plugin contract
 BarWidget.qml      bar pill + panel host
 Panel.qml          KeyboardPanel popup
-Service.qml        Netdata v3 polling
+Service.qml        plugin singleton; one Poller per host+charts
+Poller.qml         Netdata v3 polling
 GpuChart.qml       pan/zoom canvas
 Model.js           parse / window math
 ```

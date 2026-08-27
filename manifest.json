@@ -2,14 +2,16 @@
   "schemaVersion": 1,
   "id": "io.github.bonesgit.omarchy-netdata",
   "name": "Netdata Monitor",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "author": "bonesgit",
   "license": "MIT",
   "description": "Netdata GPU utilization and temperature monitor for the Omarchy bar, with history popup.",
   "kinds": [
+    "service",
     "bar-widget"
   ],
   "entryPoints": {
+    "service": "Service.qml",
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
