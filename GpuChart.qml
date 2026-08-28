@@ -73,6 +73,10 @@ Item {
 
   signal zoomRequested(real factor, real anchorSec)
   signal panRequested(real deltaSec)
+  // NaN means the pointer left this chart. Panel mirrors finite t onto the other chart.
+  signal hoverMoved(real t)
+  property bool syncHover: false
+  readonly property bool hoverActive: mouse.containsMouse || mouse.dragging
 
   function xForTime(t) {
     return ((t - windowStart) / windowSpan) * canvas.width
@@ -133,11 +137,36 @@ Item {
     return value + "  " + Model.formatHoverTick(hoverT, windowSpan)
   }
 
+  function setHoverTime(t) {
+    if (!isFinite(t)) {
+      hoverX = -1
+      hoverT = NaN
+      hoverV = null
+      hoverValues = []
+      canvas.requestPaint()
+      return
+    }
+    hoverT = t
+    hoverX = xForTime(t)
+    var lists = useSeries ? plotSeries : [plotPoints]
+    var vals = []
+    var first = null
+    for (var i = 0; i < lists.length; i++) {
+      var v = Model.interpolate(lists[i], hoverT)
+      vals.push(v)
+      if (first === null && finiteValue(v)) first = v
+    }
+    hoverValues = vals
+    hoverV = first
+    canvas.requestPaint()
+  }
+
+  function applyHoverTime(t) {
+    setHoverTime(t)
+  }
+
   function clearHover() {
-    hoverX = -1
-    hoverT = NaN
-    hoverV = null
-    hoverValues = []
+    setHoverTime(NaN)
   }
 
   function updateHover(x) {
@@ -147,8 +176,11 @@ Item {
       if (lists[e] && lists[e].length) { empty = false; break }
     }
     if (x < 0 || x > width || empty) {
-      clearHover()
-      canvas.requestPaint()
+      if (syncHover) {
+        hoverMoved(NaN)
+      } else {
+        clearHover()
+      }
       return
     }
     hoverX = x
@@ -163,20 +195,30 @@ Item {
     hoverValues = vals
     hoverV = first
     canvas.requestPaint()
+    hoverMoved(hoverT)
   }
 
-  onPointsChanged: canvas.requestPaint()
-  onSeriesChanged: canvas.requestPaint()
-  onWindowStartChanged: canvas.requestPaint()
-  onWindowEndChanged: canvas.requestPaint()
+  function refreshHover() {
+    if (mouse.pressed || mouse.containsMouse)
+      updateHover(mouse.mouseX)
+    else if (isFinite(hoverT) && hoverX >= 0)
+      setHoverTime(hoverT)
+    else
+      canvas.requestPaint()
+  }
+
+  onPointsChanged: refreshHover()
+  onSeriesChanged: refreshHover()
+  onWindowStartChanged: refreshHover()
+  onWindowEndChanged: refreshHover()
   onAutoScaleChanged: canvas.requestPaint()
   onCompactChanged: canvas.requestPaint()
   onLineColorChanged: canvas.requestPaint()
   onSecondaryColorChanged: canvas.requestPaint()
   onGridColorChanged: canvas.requestPaint()
   onTextColorChanged: canvas.requestPaint()
-  onWidthChanged: canvas.requestPaint()
-  onHeightChanged: canvas.requestPaint()
+  onWidthChanged: refreshHover()
+  onHeightChanged: refreshHover()
 
   Canvas {
     id: canvas
@@ -314,10 +356,21 @@ Item {
       lastX = event.x
       root.updateHover(event.x)
     }
-    onReleased: dragging = false
-    onCanceled: dragging = false
+    onReleased: {
+      dragging = false
+      if (syncHover && !containsMouse)
+        root.hoverMoved(NaN)
+    }
+    onCanceled: {
+      dragging = false
+      if (syncHover && !containsMouse)
+        root.hoverMoved(NaN)
+    }
     onExited: {
-      if (!dragging) {
+      if (dragging) return
+      if (syncHover)
+        root.hoverMoved(NaN)
+      else {
         root.clearHover()
         canvas.requestPaint()
       }

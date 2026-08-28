@@ -128,6 +128,16 @@ Panel {
     applyWindow(Model.panWindow(windowStart, windowEnd, delta, nowBound(), dbFirst()))
   }
 
+  function syncChartHover(t, source) {
+    if (isFinite(Number(t))) {
+      chartHoverClear.stop()
+      if (source !== chart) chart.applyHoverTime(t)
+      if (source !== tempChart) tempChart.applyHoverTime(t)
+    } else {
+      chartHoverClear.restart()
+    }
+  }
+
   function nudge(dx) {
     if (dx === 0) return
     panBy(dx * durationSec * 0.15)
@@ -137,6 +147,10 @@ Panel {
     resetLiveWindow()
     refreshHistory()
     Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+  } else {
+    chartHoverClear.stop()
+    chart.applyHoverTime(NaN)
+    tempChart.applyHoverTime(NaN)
   }
 
   onSplitEnabledChanged: if (opened) refreshHistory()
@@ -158,6 +172,16 @@ Panel {
     id: historyDebounce
     interval: 140
     onTriggered: root.refreshHistory()
+  }
+
+  Timer {
+    id: chartHoverClear
+    interval: 160
+    onTriggered: {
+      if (chart.hoverActive || tempChart.hoverActive) return
+      chart.applyHoverTime(NaN)
+      tempChart.applyHoverTime(NaN)
+    }
   }
 
   KeyboardPanel {
@@ -306,6 +330,27 @@ Panel {
           width: parent.width
           spacing: Style.space(10)
 
+          HoverHandler {
+            onHoveredChanged: {
+              if (hovered) {
+                chartHoverClear.stop()
+                return
+              }
+              chartHoverClear.stop()
+              chart.applyHoverTime(NaN)
+              tempChart.applyHoverTime(NaN)
+            }
+            onPointChanged: {
+              if (!hovered) return
+              chartHoverClear.stop()
+              if (chart.hoverActive || tempChart.hoverActive) return
+              var t = chart.timeForX(point.position.x)
+              if (!isFinite(Number(t))) return
+              chart.applyHoverTime(t)
+              tempChart.applyHoverTime(t)
+            }
+          }
+
           Column {
             width: parent.width
             spacing: Style.space(6)
@@ -349,6 +394,7 @@ Panel {
               windowStart: root.windowStart
               windowEnd: root.windowEnd
               live: root.live
+              syncHover: true
               lineColor: Color.accent
               secondaryColor: Color.urgent
               gridColor: Color.muted
@@ -357,6 +403,7 @@ Panel {
               fontFamily: root.fontFamily
               onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
               onPanRequested: function(delta) { root.panBy(delta) }
+              onHoverMoved: function(t) { root.syncChartHover(t, chart) }
             }
           }
 
@@ -408,6 +455,7 @@ Panel {
               autoScale: true
               compact: true
               temperature: true
+              syncHover: true
               lineColor: Color.accent
               secondaryColor: Color.urgent
               gridColor: Color.muted
@@ -416,6 +464,7 @@ Panel {
               fontFamily: root.fontFamily
               onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
               onPanRequested: function(delta) { root.panBy(delta) }
+              onHoverMoved: function(t) { root.syncChartHover(t, tempChart) }
             }
           }
         }
