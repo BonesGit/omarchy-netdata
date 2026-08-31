@@ -396,7 +396,15 @@ Item {
 
   Rectangle {
     visible: root.hoverX >= 0 && root.finiteValue(root.hoverV)
-    x: Math.min(Math.max(0, root.hoverX - implicitWidth - Style.space(8)), Math.max(0, parent.width - implicitWidth))
+    // Default to the left of the crosshair; when the tooltip would run off
+    // the left edge (cursor near the start of the window), flip to the right
+    // of the crosshair so it never covers the cursor.
+    x: {
+      var left = root.hoverX - implicitWidth - Style.space(8)
+      if (left < 0)
+        return Math.min(root.hoverX + Style.space(8), Math.max(0, parent.width - implicitWidth))
+      return Math.max(0, left)
+    }
     y: Style.space(4)
     implicitWidth: hoverLabel.implicitWidth + Style.space(10)
     implicitHeight: hoverLabel.implicitHeight + Style.space(6)
