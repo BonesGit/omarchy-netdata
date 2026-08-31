@@ -24,6 +24,7 @@
       "host": "localhost",
       "refreshSeconds": 5,
       "retryAttempts": 5,
+      "retryWindowMinutes": 120,
       "gpu": "nvidia",
       "context": "",
       "tempContext": "",
@@ -49,11 +50,22 @@
       {
         "key": "retryAttempts",
         "type": "integer",
-        "label": "Failed polls before stop",
+        "label": "Polls at normal cadence before backoff",
         "min": 1,
         "max": 60,
         "step": 1,
-        "defaultValue": 5
+        "defaultValue": 5,
+        "description": "Consecutive failed live polls before the wait starts doubling (capped at a 5-minute liveness probe). A successful poll resets the counter. The poller auto-stops once the retry window expires."
+      },
+      {
+        "key": "retryWindowMinutes",
+        "type": "integer",
+        "label": "Max retry time (minutes)",
+        "min": 1,
+        "max": 1440,
+        "step": 1,
+        "defaultValue": 120,
+        "description": "How long to keep retrying an unreachable host before giving up and switching to Stopped (1-1440, default 120 = 2 hours). Any successful poll resets the window; restarting the poller starts a fresh window."
       },
       {
         "key": "gpu",

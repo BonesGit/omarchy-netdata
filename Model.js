@@ -28,6 +28,15 @@ var HOUR_SEC = 60 * 60
 var DAY_SEC = 24 * HOUR_SEC
 var MAX_LATEST_RESPONSE_BYTES = 256 * 1024
 var MAX_HISTORY_RESPONSE_BYTES = 2 * 1024 * 1024
+// Liveness-probe cap: while offline the poller keeps trying, at most
+// once every 5 minutes.
+var BACKOFF_MAX_MS = 5 * 60 * 1000
+// Maximum continuous retry window: after this much continuous retrying
+// without a success, the poller auto-stops (user must restart). Expressed
+// in minutes; user-settable via retryWindowMinutes (default 2 hours).
+var DEFAULT_RETRY_WINDOW_MIN = 120
+var MIN_RETRY_WINDOW_MIN = 1
+var MAX_RETRY_WINDOW_MIN = 1440
 // Hard cap independent of server timestamps. 2s polling over 3 days is
 // ~129600 points; a hostile clock can stay inside the window forever.
 var MAX_POINTS = 2048
@@ -177,6 +186,33 @@ function configuredRetryAttempts(settings) {
   var n = parseInt(settings && settings.retryAttempts, 10)
   if (!isFinite(n)) n = 5
   return Math.max(1, Math.min(60, n))
+}
+
+// Maximum continuous retry window in ms (default 2 hours). After this
+// much time has passed since the first failure in a streak without a
+// successful poll, the poller auto-stops.
+function configuredRetryWindowMs(settings) {
+  var n = parseInt(settings && settings.retryWindowMinutes, 10)
+  if (!isFinite(n)) n = DEFAULT_RETRY_WINDOW_MIN
+  var minutes = Math.max(MIN_RETRY_WINDOW_MIN, Math.min(MAX_RETRY_WINDOW_MIN, n))
+  return minutes * 60 * 1000
+}
+
+// Backed-off interval after `failCount` consecutive failed polls: the
+// first `retryAttempts` polls stay at the base refresh, then the wait
+// doubles each poll, capped at the liveness-probe max (5 min). So with
+// the defaults (5 attempts, 5s base) polls 1-5 run at 5s, poll 6 at 10s,
+// poll 7 at 20s, ... until it settles on a 5-minute liveness probe.
+function backoffMs(failCount, baseMs, retryAttempts) {
+  var n = Math.max(0, Math.floor(failCount))
+  var base = Math.max(1, Math.floor(baseMs))
+  var attempts = parseInt(retryAttempts, 10)
+  if (!isFinite(attempts)) attempts = 5
+  attempts = Math.max(1, attempts)
+  var excess = Math.max(0, n - attempts + 1)
+  var ms = base
+  for (var i = 0; i < excess; i++) ms *= 2
+  return Math.min(ms, BACKOFF_MAX_MS)
 }
 
 // Accepts "localhost", "localhost:19999", "http://localhost:19999", or

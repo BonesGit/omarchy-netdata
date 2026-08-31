@@ -28,6 +28,8 @@ Item {
   property real lastSampleAt: 0
   property bool polling: true
   property int failCount: 0
+  // When the current failure streak began (ms epoch); 0 = not in a streak.
+  property real retryStartedAt: 0
   property bool countedThisPoll: false
   property bool latestAborted: false
   property bool historyAborted: false
@@ -53,6 +55,7 @@ Item {
   readonly property string hostLabel: Model.hostLabel(hostRaw)
   readonly property int refreshMs: Model.configuredRefreshMs(settings)
   readonly property int retryAttempts: Model.configuredRetryAttempts(settings)
+  readonly property int retryWindowMs: Model.configuredRetryWindowMs(settings)
   readonly property bool splitEnabled: Model.configuredSplit(settings)
   readonly property string status: Model.statusKey(connected, currentValue)
 
@@ -60,8 +63,15 @@ Item {
 
   function togglePolling() {
     polling = !polling
-    failCount = 0
+    resetFailureState()
     if (polling) refreshLatest()
+  }
+
+  // A success, a manual toggle, or a host/context change all start a fresh
+  // retry window.
+  function resetFailureState() {
+    failCount = 0
+    retryStartedAt = 0
   }
 
   function abortIfTooLarge(proc, data, maxBytes) {
@@ -210,7 +220,7 @@ Item {
     }
     connected = true
     lastError = ""
-    failCount = 0
+    resetFailureState()
     currentValue = value
     splitValues = values
     if (meta.nodeName) nodeName = meta.nodeName
@@ -290,7 +300,7 @@ Item {
     lastError = ""
     if (value !== null) {
       connected = true
-      failCount = 0
+      resetFailureState()
       currentValue = value
     }
     splitValues = values
@@ -311,10 +321,15 @@ Item {
     lastError = reason || "unreachable"
     if (!polling || countedThisPoll) return
     countedThisPoll = true
+    // Backoff stretches the cadence as failures pile up (doubling after
+    // retryAttempts, capped at the liveness probe). Any success resets
+    // failCount below, so the window only runs for one continuous streak.
+    if (failCount === 0) retryStartedAt = Date.now()
     failCount += 1
-    if (failCount >= retryAttempts) {
+    if (retryStartedAt && retryWindowMs > 0
+        && Date.now() - retryStartedAt >= retryWindowMs) {
+      // Gave up: stay stopped until the user flips the switch again.
       polling = false
-      failCount = 0
     }
   }
 
@@ -325,7 +340,7 @@ Item {
     clearSeriesState()
     connected = false
     lastError = ""
-    failCount = 0
+    resetFailureState()
     chartTitle = Model.defaultTitle()
     tempTitle = Model.defaultTempTitle()
     refreshLatest()
@@ -334,7 +349,7 @@ Item {
   onContextIdChanged: {
     clearSeriesState()
     connected = false
-    failCount = 0
+    resetFailureState()
     chartTitle = Model.defaultTitle()
     refreshLatest()
   }
@@ -352,9 +367,17 @@ Item {
     refreshLatest()
   }
 
+  // Changing a running Timer's interval does not restart its countdown
+  // reliably, so re-arm explicitly whenever the failure count (and thus the
+  // backoff interval) changes. callLater lets the `running` binding settle
+  // first; failCount only changes while polling, so this cannot unpause it.
+  onFailCountChanged: Qt.callLater(function() { if (root.polling) pollTimer.restart() })
+
+  // While offline the interval stretches: base cadence for the first
+  // retryAttempts failures, then doubling, capped at the liveness probe.
   Timer {
     id: pollTimer
-    interval: root.refreshMs
+    interval: Model.backoffMs(root.failCount, root.refreshMs, root.retryAttempts)
     running: root.polling
     repeat: true
     triggeredOnStart: true

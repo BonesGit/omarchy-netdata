@@ -80,6 +80,30 @@ assertEqual(model.formatPercent(41.25), "41", "truncate percent")
 assertEqual(model.formatPercent(41.9), "41", "truncate percent does not round")
 assertEqual(model.formatPercent(null), "—", "missing percent")
 assertEqual(model.formatTemp(47.166), "47°", "truncate temp")
+
+// Backoff: the first retryAttempts polls stay at base, then each wait
+// doubles, capped at the 5-minute liveness probe. (f = failures so far;
+// the wait shown is the one before the next poll.)
+assertEqual(model.backoffMs(0, 5000, 5), 5000, "no failures -> base (poll 1)")
+assertEqual(model.backoffMs(4, 5000, 5), 5000, "fail 4 -> still base (poll 5)")
+assertEqual(model.backoffMs(5, 5000, 5), 10000, "fail 5 -> 2x (poll 6)")
+assertEqual(model.backoffMs(6, 5000, 5), 20000, "fail 6 -> 4x (poll 7)")
+assertEqual(model.backoffMs(7, 5000, 5), 40000, "fail 7 -> 8x (poll 8)")
+assertEqual(model.backoffMs(9, 5000, 5), 160000, "fail 9 -> 32x")
+assertEqual(model.backoffMs(10, 5000, 5), 300000, "capped at 5 min")
+assertEqual(model.backoffMs(3, 5000, 2), 20000, "attempts=2: doubling starts at poll 3")
+assertEqual(model.backoffMs(10, 2000, 1), 300000, "capped with custom base")
+
+// Retry window: user-set max continuous retry time (minutes -> ms),
+// clamped to [1, 1440], default 2 hours (120 min).
+assertEqual(model.configuredRetryWindowMs({}), 120 * 60 * 1000, "default -> 2h")
+assertEqual(model.configuredRetryWindowMs({ retryWindowMinutes: 30 }), 30 * 60 * 1000, "30 min")
+assertEqual(model.configuredRetryWindowMs({ retryWindowMinutes: 1440 }), 1440 * 60 * 1000, "max 1440")
+assertEqual(model.configuredRetryWindowMs({ retryWindowMinutes: 10000 }), 1440 * 60 * 1000, "clamped to 1440")
+assertEqual(model.configuredRetryWindowMs({ retryWindowMinutes: 0 }), 60 * 1000, "clamped to 1 min")
+assertEqual(model.configuredRetryWindowMs({ retryWindowMinutes: "notanumber" }), 120 * 60 * 1000, "NaN -> default")
+assertEqual(model.configuredRetryWindowMs(null), 120 * 60 * 1000, "null settings -> default")
+
 assertEqual(model.formatTemp(47.9), "47°", "truncate temp does not round")
 assertEqual(model.formatTemp(null), "—", "missing temp")
 
