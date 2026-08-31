@@ -277,8 +277,33 @@ assertEqual(model.formatValueList([5, 95], model.formatPercent, "%"), "5% / 95%"
 assertEqual(model.formatValueList([47.9, 52], model.formatTemp), "47° / 52°", "format temp list")
 assertEqual(model.formatValueList([5], model.formatPercent, "%"), "5%", "format single percent")
 
-const interp = model.interpolate([{ t: 100, v: 10 }, { t: 101, v: null }, { t: 102, v: 30 }], 101.5)
-assertEqual(interp, 25, "interpolate skips null cells")
+// valueAtTime: fills from the nearest real sample within the gap tolerance,
+// never bridges a data hole (the 2h-outage case), and nulls outside data.
+const dense = [{ t: 100, v: 10 }, { t: 105, v: null }, { t: 110, v: 30 }]
+assertEqual(model.valueAtTime(dense, 107), 10, "fills forward from last real sample")
+assertEqual(model.valueAtTime(dense, 102), 10, "fills backward from next real sample")
+assertEqual(model.valueAtTime(dense, 100), 10, "exact sample time")
+
+// A long outage: 2h hole between t=0 and t=7200. 5s cadence nearby.
+const outage = [
+  { t: 0, v: 20 }, { t: 5, v: 21 }, { t: 10, v: 22 },
+  { t: 7200, v: 40 }, { t: 7205, v: 41 }, { t: 7210, v: 42 }
+]
+assertEqual(model.valueAtTime(outage, 3600), null, "2h outage reads as a gap")
+assertEqual(model.valueAtTime(outage, 11), 22, "just before the hole still shows data")
+assertEqual(model.valueAtTime(outage, 7199), 40, "just after the hole shows new data")
+assertEqual(model.valueAtTime(outage, -100), 20, "window edge before data fills from first sample")
+
+// Threshold scales with sampling interval but is capped at 40 min: hourly
+// points get a 40-min fill, so a 2h hole is still a gap but a 30-min hover
+// off the nearest sample still shows that sample.
+const hourly = [{ t: 0, v: 1 }, { t: 7200, v: 2 }]
+assertEqual(model.valueAtTime(hourly, 3600), null, "capped fill: 2h hole stays a gap")
+assertEqual(model.valueAtTime(hourly, 1500), 1, "30-min hover fills from nearest sample")
+assertEqual(model.valueAtTime(hourly, 2500), null, "beyond 40-min cap is a gap")
+
+assertEqual(model.valueAtTime(null, 5), null, "no points is null")
+assertEqual(model.valueAtTime([], 5), null, "empty points is null")
 
 assertEqual(
   model.pollerKey({ host: "razorback" }),

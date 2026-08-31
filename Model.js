@@ -889,24 +889,54 @@ function clampWindow(startSec, endSec, now, dbFirst) {
   }
 }
 
-function interpolate(points, t) {
+// How far (seconds) a hover may sit from a real sample and still show that
+// sample's value. Wide windows downsample to sparse points, so the
+// tolerance scales with the sampling interval; the cap keeps a long outage
+// (hours of nothing) a gap no matter how sparse the surrounding data is.
+var MIN_GAP_SEC = 60
+var MAX_FILL_SEC = 40 * 60
+var GAP_SPACING_FACTOR = 3
+
+function gapThresholdSec(points) {
+  var n = points.length
+  if (n < 2) return MIN_GAP_SEC
+  var sum = 0
+  var count = 0
+  for (var i = 1; i < n; i++) {
+    var d = Number(points[i].t) - Number(points[i - 1].t)
+    if (d > 0) {
+      sum += d
+      count++
+    }
+  }
+  if (!count) return MIN_GAP_SEC
+  var threshold = GAP_SPACING_FACTOR * (sum / count)
+  return Math.max(MIN_GAP_SEC, Math.min(MAX_FILL_SEC, threshold))
+}
+
+// Hover value at time t. Never interpolates across missing data: within
+// the gap tolerance it fills forward/back from the nearest real sample;
+// beyond it (e.g. a Netdata outage window) it returns null, so the chart
+// shows no dot and the tooltip reads "—" instead of a fabricated value.
+function valueAtTime(points, t) {
   if (!points || !points.length || !isFinite(Number(t))) return null
   var ts = Number(t)
+  var threshold = gapThresholdSec(points)
   var prev = null
+  var next = null
   for (var i = 0; i < points.length; i++) {
     var p = points[i]
     if (!presentNumber(p.v)) continue
-    if (p.t === ts) return Number(p.v)
-    if (p.t > ts) {
-      if (!prev) return Number(p.v)
-      var span = p.t - prev.t
-      if (span <= 0) return Number(p.v)
-      var frac = (ts - prev.t) / span
-      return Number(prev.v) + (Number(p.v) - Number(prev.v)) * frac
+    if (p.t <= ts) {
+      prev = p
+    } else {
+      next = p
+      break
     }
-    prev = p
   }
-  return prev ? Number(prev.v) : null
+  if (prev && ts - Number(prev.t) <= threshold) return Number(prev.v)
+  if (next && Number(next.t) - ts <= threshold) return Number(next.v)
+  return null
 }
 
 function historyPointsForWidth(widthPx) {

@@ -69,6 +69,8 @@ Item {
   property real hoverT: NaN
   property var hoverV: null
   property var hoverValues: []
+  // Pointer is on the chart but every series has no data there (a gap).
+  property bool hoverGap: false
   property real wheelAcc: 0
 
   signal zoomRequested(real factor, real anchorSec)
@@ -143,6 +145,7 @@ Item {
       hoverT = NaN
       hoverV = null
       hoverValues = []
+      hoverGap = false
       canvas.requestPaint()
       return
     }
@@ -152,12 +155,13 @@ Item {
     var vals = []
     var first = null
     for (var i = 0; i < lists.length; i++) {
-      var v = Model.interpolate(lists[i], hoverT)
+      var v = Model.valueAtTime(lists[i], hoverT)
       vals.push(v)
       if (first === null && finiteValue(v)) first = v
     }
     hoverValues = vals
     hoverV = first
+    hoverGap = !finiteValue(first)
     canvas.requestPaint()
   }
 
@@ -188,12 +192,13 @@ Item {
     var vals = []
     var first = null
     for (var i = 0; i < lists.length; i++) {
-      var v = Model.interpolate(lists[i], hoverT)
+      var v = Model.valueAtTime(lists[i], hoverT)
       vals.push(v)
       if (first === null && finiteValue(v)) first = v
     }
     hoverValues = vals
     hoverV = first
+    hoverGap = !finiteValue(first)
     canvas.requestPaint()
     hoverMoved(hoverT)
   }
@@ -280,41 +285,44 @@ Item {
 
       for (var si = 0; si < lists.length; si++) {
         var line = lists[si] || []
-        ctx.beginPath()
-        var started = false
-        var firstX = 0
-        var lastX = 0
+        // Contiguous runs of finite points: a null cell (a data hole)
+        // breaks the run, so neither the line nor the area fill bridges
+        // across a gap in the data.
+        var runs = []
+        var run = []
         for (var p = 0; p < line.length; p++) {
           if (line[p].v === null || line[p].v === undefined || line[p].v === "" || !isFinite(Number(line[p].v))) {
-            started = false
+            if (run.length) { runs.push(run); run = [] }
             continue
           }
-          var x = root.xForTime(line[p].t)
-          var yv = root.yForValue(line[p].v)
-          if (!started) {
-            ctx.moveTo(x, yv)
-            firstX = x
-            started = true
-          } else {
-            ctx.lineTo(x, yv)
-          }
-          lastX = x
+          run.push({ x: root.xForTime(line[p].t), y: root.yForValue(line[p].v) })
         }
+        if (run.length) runs.push(run)
+        if (!runs.length) continue
 
-        if (started) {
-          ctx.strokeStyle = root.strokeColor(si).toString()
-          ctx.lineWidth = 1.75
-          ctx.lineJoin = "round"
-          ctx.lineCap = "round"
-          ctx.stroke()
+        ctx.strokeStyle = root.strokeColor(si).toString()
+        ctx.lineWidth = 1.75
+        ctx.lineJoin = "round"
+        ctx.lineCap = "round"
+        ctx.beginPath()
+        for (var r = 0; r < runs.length; r++) {
+          ctx.moveTo(runs[r][0].x, runs[r][0].y)
+          for (var q = 1; q < runs[r].length; q++) ctx.lineTo(runs[r][q].x, runs[r][q].y)
+        }
+        ctx.stroke()
 
-          if (si === 0) {
-            ctx.lineTo(lastX, plotBottom)
-            ctx.lineTo(firstX, plotBottom)
+        if (si === 0) {
+          ctx.beginPath()
+          for (var r = 0; r < runs.length; r++) {
+            var seg = runs[r]
+            ctx.moveTo(seg[0].x, seg[0].y)
+            for (var q = 1; q < seg.length; q++) ctx.lineTo(seg[q].x, seg[q].y)
+            ctx.lineTo(seg[seg.length - 1].x, plotBottom)
+            ctx.lineTo(seg[0].x, plotBottom)
             ctx.closePath()
-            ctx.fillStyle = Util.alpha(root.lineColor, 0.16).toString()
-            ctx.fill()
           }
+          ctx.fillStyle = Util.alpha(root.lineColor, 0.16).toString()
+          ctx.fill()
         }
       }
 
@@ -395,7 +403,9 @@ Item {
   }
 
   Rectangle {
-    visible: root.hoverX >= 0 && root.finiteValue(root.hoverV)
+    // Show a real value, or an "—" tooltip when hovering a gap (no data
+    // there), so a data hole is visible instead of a fabricated value.
+    visible: root.hoverX >= 0 && (root.finiteValue(root.hoverV) || root.hoverGap)
     // Default to the left of the crosshair; when the tooltip would run off
     // the left edge (cursor near the start of the window), flip to the right
     // of the crosshair so it never covers the cursor.
