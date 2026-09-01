@@ -56,6 +56,12 @@ omarchy restart shell
 
 The plugin only reads metrics from the host you configure. It does not install Netdata, collect GPU data itself, or modify your Netdata configuration.
 
+## Update
+
+```bash
+omarchy plugin update io.github.bonesgit.omarchy-netdata
+```
+
 ## Remove
 
 ```bash
