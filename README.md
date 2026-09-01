@@ -1,6 +1,6 @@
 # omarchy-netdata
 
-Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) remote host. Useful when running local AI on anther dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Will be adding more metrics over time.
+Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) remote host. Useful when running local AI on another dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Will be adding more metrics over time.
 
 ![GPU usage](preview.png)
 
