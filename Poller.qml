@@ -4,10 +4,14 @@ import Quickshell.Io
 import qs.Commons
 import "Model.js" as Model
 
-// Polls a remote Netdata v3 endpoint for GPU utilization. Created by
-// the plugin service registry (one per host+context group) so dual-
-// monitor pills share connected/polling state. The panel asks it for a
-// history window on demand.
+// Polls a remote Netdata v3 endpoint for GPU utilization plus three
+// companion metrics (temperature, memory, power). Created by the plugin
+// service registry (one per host+charts group) so dual-monitor pills
+// share connected/polling state. The panel asks it for a history window
+// on demand. Each companion resolves to its own context (see
+// Model.configuredTempQuery / configuredMemQuery / configuredPowerQuery);
+// memory requests only the "used" dimension. A failed companion poll never
+// stops the widget.
 Item {
   id: root
   width: 0
@@ -33,25 +37,54 @@ Item {
   property bool countedThisPoll: false
   property bool latestAborted: false
   property bool historyAborted: false
-  property bool tempAborted: false
-  property bool tempHistoryAborted: false
   property bool latestSawData: false
   property bool historySawData: false
+
+  // Per-companion transient flags (latest + history runs).
+  property bool tempAborted: false
+  property bool tempHistoryAborted: false
   property bool tempSawData: false
   property bool tempHistorySawData: false
+  property bool memAborted: false
+  property bool memHistoryAborted: false
+  property bool memSawData: false
+  property bool memHistorySawData: false
+  property bool powerAborted: false
+  property bool powerHistoryAborted: false
+  property bool powerSawData: false
+  property bool powerHistorySawData: false
+
+  // Companion state: value, points, split-aligned series, units, title.
   property var tempValue: null
   property var tempPoints: []
-  property var series: []
   property var tempSeries: []
-  property var splitValues: []
   property var splitTempValues: []
-  property string tempUnits: "°C"
+  property string tempUnits: "\u00B0C"
   property string tempTitle: Model.defaultTempTitle()
+  property var memValue: null
+  property var memPoints: []
+  property var memSeries: []
+  property var splitMemValues: []
+  property string memUnits: ""
+  property string memTitle: Model.defaultMemTitle()
+  property var powerValue: null
+  property var powerPoints: []
+  property var powerSeries: []
+  property var splitPowerValues: []
+  property string powerUnits: ""
+  property string powerTitle: Model.defaultPowerTitle()
+
+  property var series: []
+  property var splitValues: []
 
   readonly property string hostRaw: Model.configuredHost(settings)
   readonly property string contextId: Model.configuredContext(settings)
   readonly property var tempQuery: Model.configuredTempQuery(settings)
   readonly property string tempContextId: tempQuery.context
+  readonly property var memQuery: Model.configuredMemQuery(settings)
+  readonly property string memContextId: memQuery.context
+  readonly property var powerQuery: Model.configuredPowerQuery(settings)
+  readonly property string powerContextId: powerQuery.context
   readonly property string hostLabel: Model.hostLabel(hostRaw)
   readonly property int refreshMs: Model.configuredRefreshMs(settings)
   readonly property int retryAttempts: Model.configuredRetryAttempts(settings)
@@ -89,7 +122,10 @@ Item {
     return wrapSingle(Model.parseSeries(payload))
   }
 
-  function parseTempChartSeries(payload) {
+  // Companions reuse the primary's split parsing; when the primary is
+  // split, align this companion's columns to the primary's GPU order so
+  // GPU1 lines up across all charts.
+  function parseCompanionSeries(payload) {
     var parsed = parseChartSeries(payload)
     if (series.length) return Model.alignSeriesByKey(series, parsed)
     return parsed
@@ -126,6 +162,8 @@ Item {
     points = next.length ? next[0].points : []
     splitValues = Model.latestValuePerSeries(next)
     if (tempSeries.length) adoptTempSeries(tempSeries)
+    if (memSeries.length) adoptMemSeries(memSeries)
+    if (powerSeries.length) adoptPowerSeries(powerSeries)
   }
 
   function adoptTempSeries(next) {
@@ -135,20 +173,37 @@ Item {
     splitTempValues = Model.latestValuePerSeries(aligned)
   }
 
+  function adoptMemSeries(next) {
+    var aligned = series.length ? Model.alignSeriesByKey(series, next) : next
+    memSeries = aligned
+    memPoints = aligned.length ? aligned[0].points : []
+    splitMemValues = Model.latestValuePerSeries(aligned)
+  }
+
+  function adoptPowerSeries(next) {
+    var aligned = series.length ? Model.alignSeriesByKey(series, next) : next
+    powerSeries = aligned
+    powerPoints = aligned.length ? aligned[0].points : []
+    splitPowerValues = Model.latestValuePerSeries(aligned)
+  }
+
   function clearSeriesState() {
     series = []
-    tempSeries = []
     points = []
-    tempPoints = []
     splitValues = []
-    splitTempValues = []
     currentValue = null
-    tempValue = null
+    clearCompanionState()
+  }
+
+  function clearCompanionState() {
+    tempValue = null; tempPoints = []; tempSeries = []; splitTempValues = []
+    memValue = null; memPoints = []; memSeries = []; splitMemValues = []
+    powerValue = null; powerPoints = []; powerSeries = []; splitPowerValues = []
   }
 
   function refreshLatest() {
     if (latestProc.running) {
-      refreshTemp()
+      refreshCompanions()
       return
     }
     countedThisPoll = false
@@ -156,19 +211,43 @@ Item {
     latestSawData = false
     latestProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, contextId, Model.queryExtra(null, splitEnabled))]
     latestProc.running = true
+    refreshCompanions()
+  }
+
+  // Kick a latest fetch for every companion that has a context. A missing
+  // context (e.g. a GPU the vendor module doesn't expose) just leaves the
+  // metric empty.
+  function refreshCompanions() {
     refreshTemp()
+    refreshMem()
+    refreshPower()
   }
 
   function refreshTemp() {
-    if (!tempContextId) {
-      tempValue = null
-      return
-    }
+    if (!tempContextId) { tempValue = null; return }
     if (tempProc.running) return
     tempAborted = false
     tempSawData = false
     tempProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, tempContextId, Model.queryExtra(tempQuery, splitEnabled))]
     tempProc.running = true
+  }
+
+  function refreshMem() {
+    if (!memContextId) { memValue = null; return }
+    if (memProc.running) return
+    memAborted = false
+    memSawData = false
+    memProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, memContextId, Model.queryExtra(memQuery, splitEnabled))]
+    memProc.running = true
+  }
+
+  function refreshPower() {
+    if (!powerContextId) { powerValue = null; return }
+    if (powerProc.running) return
+    powerAborted = false
+    powerSawData = false
+    powerProc.command = ["curl", "-fsS", "--max-time", "4", "--max-filesize", String(Model.maxLatestResponseBytes()), Model.latestUrl(hostRaw, powerContextId, Model.queryExtra(powerQuery, splitEnabled))]
+    powerProc.running = true
   }
 
   function refreshHistory(startSec, endSec, pointsWanted) {
@@ -181,23 +260,43 @@ Item {
       historyProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, contextId, startSec, endSec, pointsWanted, Model.queryExtra(null, splitEnabled))]
       historyProc.running = true
     }
+    refreshCompanionHistory(startSec, endSec, pointsWanted)
+  }
+
+  function refreshCompanionHistory(startSec, endSec, pointsWanted) {
     refreshTempHistory(startSec, endSec, pointsWanted)
+    refreshMemHistory(startSec, endSec, pointsWanted)
+    refreshPowerHistory(startSec, endSec, pointsWanted)
   }
 
   function refreshTempHistory(startSec, endSec, pointsWanted) {
-    if (!tempContextId) {
-      tempPoints = []
-      return
-    }
-    if (tempHistoryProc.running) {
-      pendingTempHistory = { start: startSec, end: endSec, points: pointsWanted }
-      return
-    }
+    if (!tempContextId) { tempPoints = []; return }
+    if (tempHistoryProc.running) { pendingTempHistory = { start: startSec, end: endSec, points: pointsWanted }; return }
     pendingTempHistory = null
     tempHistoryAborted = false
     tempHistorySawData = false
     tempHistoryProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, tempContextId, startSec, endSec, pointsWanted, Model.queryExtra(tempQuery, splitEnabled))]
     tempHistoryProc.running = true
+  }
+
+  function refreshMemHistory(startSec, endSec, pointsWanted) {
+    if (!memContextId) { memPoints = []; return }
+    if (memHistoryProc.running) { pendingMemHistory = { start: startSec, end: endSec, points: pointsWanted }; return }
+    pendingMemHistory = null
+    memHistoryAborted = false
+    memHistorySawData = false
+    memHistoryProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, memContextId, startSec, endSec, pointsWanted, Model.queryExtra(memQuery, splitEnabled))]
+    memHistoryProc.running = true
+  }
+
+  function refreshPowerHistory(startSec, endSec, pointsWanted) {
+    if (!powerContextId) { powerPoints = []; return }
+    if (powerHistoryProc.running) { pendingPowerHistory = { start: startSec, end: endSec, points: pointsWanted }; return }
+    pendingPowerHistory = null
+    powerHistoryAborted = false
+    powerHistorySawData = false
+    powerHistoryProc.command = ["curl", "-fsS", "--max-time", "6", "--max-filesize", String(Model.maxHistoryResponseBytes()), Model.historyUrl(hostRaw, powerContextId, startSec, endSec, pointsWanted, Model.queryExtra(powerQuery, splitEnabled))]
+    powerHistoryProc.running = true
   }
 
   function applyLatest(raw) {
@@ -240,17 +339,14 @@ Item {
     seriesUpdated()
   }
 
+  // Latest companion poll: merge the newest sample into the running series
+  // (or replace it when the GPU count changed). A failed/empty poll leaves
+  // the previous samples intact.
   function applyTemp(raw) {
-    if (!Model.responseWithinLimit(raw, Model.maxLatestResponseBytes())) {
-      tempValue = null
-      return
-    }
+    if (!Model.responseWithinLimit(raw, Model.maxLatestResponseBytes())) { tempValue = null; return }
     var payload = Model.parsePayload(raw)
-    if (!payload || !payload.result) {
-      tempValue = null
-      return
-    }
-    var parsed = parseTempChartSeries(payload)
+    if (!payload || !payload.result) { tempValue = null; return }
+    var parsed = parseCompanionSeries(payload)
     var meta = Model.parseMeta(payload)
     var values = Model.latestValuePerSeries(parsed)
     var value = Model.maxOf(values)
@@ -267,13 +363,54 @@ Item {
     }
   }
 
-  function applyTempHistory(raw) {
-    if (!Model.responseWithinLimit(raw, Model.maxHistoryResponseBytes()))
-      return
+  function applyMem(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxLatestResponseBytes())) { memValue = null; return }
     var payload = Model.parsePayload(raw)
-    if (!payload || !payload.result)
-      return
-    var parsed = parseTempChartSeries(payload)
+    if (!payload || !payload.result) { memValue = null; return }
+    var parsed = parseCompanionSeries(payload)
+    var meta = Model.parseMeta(payload)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
+    if (value !== null) memValue = value
+    splitMemValues = values
+    if (meta.units) memUnits = meta.units
+    var last = lastRow(parsed)
+    if (last) {
+      var next = memSeries.length !== parsed.length
+        ? replaceWithLastSample(parsed)
+        : Model.mergeSeriesPoint(memSeries, last.t, last.values)
+      adoptMemSeries(Model.pruneSeries(next, last.t))
+      splitMemValues = values
+    }
+  }
+
+  function applyPower(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxLatestResponseBytes())) { powerValue = null; return }
+    var payload = Model.parsePayload(raw)
+    if (!payload || !payload.result) { powerValue = null; return }
+    var parsed = parseCompanionSeries(payload)
+    var meta = Model.parseMeta(payload)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
+    if (value !== null) powerValue = value
+    splitPowerValues = values
+    if (meta.units) powerUnits = meta.units
+    var last = lastRow(parsed)
+    if (last) {
+      var next = powerSeries.length !== parsed.length
+        ? replaceWithLastSample(parsed)
+        : Model.mergeSeriesPoint(powerSeries, last.t, last.values)
+      adoptPowerSeries(Model.pruneSeries(next, last.t))
+      splitPowerValues = values
+    }
+  }
+
+  // History companion fetch: replace the window with the parsed range.
+  function applyTempHistory(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxHistoryResponseBytes())) return
+    var payload = Model.parsePayload(raw)
+    if (!payload || !payload.result) return
+    var parsed = parseCompanionSeries(payload)
     var meta = Model.parseMeta(payload)
     var values = Model.latestValuePerSeries(parsed)
     var value = Model.maxOf(values)
@@ -281,6 +418,34 @@ Item {
     splitTempValues = values
     if (meta.units) tempUnits = meta.units
     adoptTempSeries(Model.pruneSeries(parsed))
+  }
+
+  function applyMemHistory(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxHistoryResponseBytes())) return
+    var payload = Model.parsePayload(raw)
+    if (!payload || !payload.result) return
+    var parsed = parseCompanionSeries(payload)
+    var meta = Model.parseMeta(payload)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
+    if (value !== null) memValue = value
+    splitMemValues = values
+    if (meta.units) memUnits = meta.units
+    adoptMemSeries(Model.pruneSeries(parsed))
+  }
+
+  function applyPowerHistory(raw) {
+    if (!Model.responseWithinLimit(raw, Model.maxHistoryResponseBytes())) return
+    var payload = Model.parsePayload(raw)
+    if (!payload || !payload.result) return
+    var parsed = parseCompanionSeries(payload)
+    var meta = Model.parseMeta(payload)
+    var values = Model.latestValuePerSeries(parsed)
+    var value = Model.maxOf(values)
+    if (value !== null) powerValue = value
+    splitPowerValues = values
+    if (meta.units) powerUnits = meta.units
+    adoptPowerSeries(Model.pruneSeries(parsed))
   }
 
   function applyHistory(raw) {
@@ -335,6 +500,8 @@ Item {
 
   property var pendingHistory: null
   property var pendingTempHistory: null
+  property var pendingMemHistory: null
+  property var pendingPowerHistory: null
 
   onHostRawChanged: {
     clearSeriesState()
@@ -343,6 +510,8 @@ Item {
     resetFailureState()
     chartTitle = Model.defaultTitle()
     tempTitle = Model.defaultTempTitle()
+    memTitle = Model.defaultMemTitle()
+    powerTitle = Model.defaultPowerTitle()
     refreshLatest()
   }
 
@@ -355,11 +524,18 @@ Item {
   }
 
   onTempContextIdChanged: {
-    tempValue = null
-    tempPoints = []
-    tempSeries = []
-    splitTempValues = []
+    tempValue = null; tempPoints = []; tempSeries = []; splitTempValues = []
     if (polling) refreshTemp()
+  }
+
+  onMemContextIdChanged: {
+    memValue = null; memPoints = []; memSeries = []; splitMemValues = []
+    if (polling) refreshMem()
+  }
+
+  onPowerContextIdChanged: {
+    powerValue = null; powerPoints = []; powerSeries = []; splitPowerValues = []
+    if (polling) refreshPower()
   }
 
   onSplitEnabledChanged: {
@@ -418,10 +594,40 @@ Item {
           root.tempAborted = true
       }
       onStreamFinished: {
-        if (root.tempAborted)
-          return
-        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
+        if (root.tempAborted) return
         root.applyTemp(root.tempSawData ? text : "")
+      }
+    }
+  }
+
+  Process {
+    id: memProc
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: {
+        root.memSawData = true
+        if (root.abortIfTooLarge(memProc, data, Model.maxLatestResponseBytes()))
+          root.memAborted = true
+      }
+      onStreamFinished: {
+        if (root.memAborted) return
+        root.applyMem(root.memSawData ? text : "")
+      }
+    }
+  }
+
+  Process {
+    id: powerProc
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: {
+        root.powerSawData = true
+        if (root.abortIfTooLarge(powerProc, data, Model.maxLatestResponseBytes()))
+          root.powerAborted = true
+      }
+      onStreamFinished: {
+        if (root.powerAborted) return
+        root.applyPower(root.powerSawData ? text : "")
       }
     }
   }
@@ -440,7 +646,6 @@ Item {
           root.lastError = "history response too large"
           return
         }
-        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
         root.applyHistory(root.historySawData ? text : "")
       }
     }
@@ -464,9 +669,7 @@ Item {
           root.tempHistoryAborted = true
       }
       onStreamFinished: {
-        if (root.tempHistoryAborted)
-          return
-        // waitForEnd:false leaves mData uncleared; do not apply a prior run.
+        if (root.tempHistoryAborted) return
         root.applyTempHistory(root.tempHistorySawData ? text : "")
       }
     }
@@ -475,6 +678,52 @@ Item {
         var req = root.pendingTempHistory
         root.pendingTempHistory = null
         Qt.callLater(function() { root.refreshTempHistory(req.start, req.end, req.points) })
+      }
+    }
+  }
+
+  Process {
+    id: memHistoryProc
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: {
+        root.memHistorySawData = true
+        if (root.abortIfTooLarge(memHistoryProc, data, Model.maxHistoryResponseBytes()))
+          root.memHistoryAborted = true
+      }
+      onStreamFinished: {
+        if (root.memHistoryAborted) return
+        root.applyMemHistory(root.memHistorySawData ? text : "")
+      }
+    }
+    onExited: function(code) {
+      if (root.pendingMemHistory) {
+        var req = root.pendingMemHistory
+        root.pendingMemHistory = null
+        Qt.callLater(function() { root.refreshMemHistory(req.start, req.end, req.points) })
+      }
+    }
+  }
+
+  Process {
+    id: powerHistoryProc
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: {
+        root.powerHistorySawData = true
+        if (root.abortIfTooLarge(powerHistoryProc, data, Model.maxHistoryResponseBytes()))
+          root.powerHistoryAborted = true
+      }
+      onStreamFinished: {
+        if (root.powerHistoryAborted) return
+        root.applyPowerHistory(root.powerHistorySawData ? text : "")
+      }
+    }
+    onExited: function(code) {
+      if (root.pendingPowerHistory) {
+        var req = root.pendingPowerHistory
+        root.pendingPowerHistory = null
+        Qt.callLater(function() { root.refreshPowerHistory(req.start, req.end, req.points) })
       }
     }
   }

@@ -8,15 +8,35 @@ var NVIDIA_CONTEXT = "nvidia_smi.gpu_utilization"
 var DEFAULT_CONTEXT = NVIDIA_CONTEXT
 var DEFAULT_TITLE = "GPU utilization"
 var DEFAULT_TEMP_TITLE = "GPU temperature"
+var DEFAULT_MEM_TITLE = "GPU memory"
+var DEFAULT_POWER_TITLE = "GPU power"
 var NVIDIA_TEMP_CONTEXT = "nvidia_smi.gpu_temperature"
+var NVIDIA_MEM_CONTEXT = "nvidia_smi.gpu_frame_buffer_memory_usage"
+var NVIDIA_POWER_CONTEXT = "nvidia_smi.gpu_power_draw"
 var AMD_CONTEXT = "amdgpu.gpu_utilization"
+var AMD_MEM_CONTEXT = "amdgpu.gpu_mem_vram_usage"
 var AMD_TEMP_CONTEXT = "system.hw.sensor.temperature.input"
 var AMD_TEMP_SCOPE = "*amdgpu*"
+var AMD_POWER_CONTEXT = "system.hw.sensor.power.input"
+var AMD_POWER_SCOPE = "*amdgpu*"
+// Memory contexts report free + used (+ reserved on NVIDIA); we only
+// want the "used" dimension, so queries pass dimensions=used.
+var MEM_DIMENSION = "used"
 var GPU_NVIDIA = "nvidia"
 var GPU_AMD = "amd"
 var GPU_PRESETS = {
-  nvidia: { context: NVIDIA_CONTEXT, tempContext: NVIDIA_TEMP_CONTEXT, tempScope: "" },
-  amd: { context: AMD_CONTEXT, tempContext: AMD_TEMP_CONTEXT, tempScope: AMD_TEMP_SCOPE }
+  nvidia: {
+    context: NVIDIA_CONTEXT,
+    tempContext: NVIDIA_TEMP_CONTEXT, tempScope: "",
+    memContext: NVIDIA_MEM_CONTEXT, memScope: "",
+    powerContext: NVIDIA_POWER_CONTEXT, powerScope: ""
+  },
+  amd: {
+    context: AMD_CONTEXT,
+    tempContext: AMD_TEMP_CONTEXT, tempScope: AMD_TEMP_SCOPE,
+    memContext: AMD_MEM_CONTEXT, memScope: "",
+    powerContext: AMD_POWER_CONTEXT, powerScope: AMD_POWER_SCOPE
+  }
 }
 var DEFAULT_PORT = "19999"
 var MIN_WINDOW_SEC = 60
@@ -44,6 +64,8 @@ var MAX_POINTS = 2048
 function defaultHost() { return DEFAULT_HOST }
 function defaultTitle() { return DEFAULT_TITLE }
 function defaultTempTitle() { return DEFAULT_TEMP_TITLE }
+function defaultMemTitle() { return DEFAULT_MEM_TITLE }
+function defaultPowerTitle() { return DEFAULT_POWER_TITLE }
 function defaultWindowSec() { return DEFAULT_WINDOW_SEC }
 function maxWindowSec() { return MAX_WINDOW_SEC }
 function maxLatestResponseBytes() { return MAX_LATEST_RESPONSE_BYTES }
@@ -153,6 +175,7 @@ function derivedTempQuery(context) {
 function configuredTempQuery(settings) {
   var util = configuredContext(settings)
   var tempOver = tempContextOverride(settings)
+  if (!configuredShowTemp(settings)) return { context: "", scopeInstances: "" }
   if (tempOver) {
     if (tempOver === util) return { context: "", scopeInstances: "" }
     var extra = derivedTempQuery(tempOver)
@@ -165,6 +188,70 @@ function configuredTempQuery(settings) {
   var preset = gpuPreset(resolvedGpu(settings))
   return { context: preset.tempContext, scopeInstances: preset.tempScope }
 }
+
+// Memory + power are the two companion metrics under temperature. Each
+// resolves to { context, scopeInstances, dimension, title, units } where
+// dimension is the single Netdata dimension to request (used for memory)
+// or "" for a whole-context read. A context override on the primary chart
+// (e.g. pointing at an AMD context) re-derives the vendor so the right
+// memory/power contexts are used.
+function metricDefaults(gpu) {
+  var preset = gpuPreset(gpu)
+  return {
+    temp: { context: preset.tempContext, scopeInstances: preset.tempScope, dimension: "", title: defaultTempTitle(), units: "\u00B0C" },
+    mem: { context: preset.memContext, scopeInstances: preset.memScope, dimension: MEM_DIMENSION, title: defaultMemTitle(), units: "" },
+    power: { context: preset.powerContext, scopeInstances: preset.powerScope, dimension: "", title: defaultPowerTitle(), units: "" }
+  }
+}
+
+// Vendor for a primary context, so an explicit `context` override still
+// picks the matching memory/power families.
+function vendorOfContext(context) {
+  var ctx = String(context || "")
+  if (ctx.indexOf("nvidia_smi.") === 0) return GPU_NVIDIA
+  if (ctx.indexOf("amdgpu.") === 0 || ctx.indexOf("system.hw.sensor.") === 0) return GPU_AMD
+  return GPU_NVIDIA
+}
+
+function metricVisibleFor(settings, kind) {
+  var key = "show" + kind.charAt(0).toUpperCase() + kind.slice(1)
+  return metricVisible(settings, key)
+}
+
+function metricQuery(settings, kind) {
+  var util = configuredContext(settings)
+  var defaults = metricDefaults(vendorOfContext(util))
+  var base = defaults[kind] || { context: "", scopeInstances: "", dimension: "", title: "", units: "" }
+  var hidden = !metricVisibleFor(settings, kind)
+  var override = settingString(settings, kind + "Context")
+  if (hidden) return { context: "", scopeInstances: "", dimension: "", title: "", units: "" }
+  if (!override) {
+    return {
+      context: hidden ? "" : base.context,
+      scopeInstances: base.scopeInstances,
+      dimension: base.dimension,
+      title: base.title,
+      units: base.units
+    }
+  }
+  if (override === util) return { context: "", scopeInstances: "", dimension: "", title: "", units: "" }
+  // Override context wins; keep the vendor's scope for sensors-style
+  // contexts and the used-dimension rule for memory contexts.
+  var scope = base.scopeInstances
+  var context = override
+  if (context.indexOf("system.hw.sensor.") === 0) scope = base.scopeInstances
+  var dimension = String(context).indexOf("memory") >= 0 || String(context).indexOf("mem") >= 0 ? MEM_DIMENSION : ""
+  return {
+    context: context,
+    scopeInstances: scope,
+    dimension: dimension,
+    title: base.title,
+    units: base.units
+  }
+}
+
+function configuredMemQuery(settings) { return metricQuery(settings, "mem") }
+function configuredPowerQuery(settings) { return metricQuery(settings, "power") }
 
 function configuredDashboardUrl(settings) {
   var raw = settings && settings.dashboardUrl !== undefined && settings.dashboardUrl !== null ? settings.dashboardUrl : ""
@@ -339,6 +426,8 @@ function dataUrl(rawHost, context, after, before, points, extra) {
   if (scope) url += "&scope_instances=" + encodeURIComponent(scope)
   var groupBy = extra && extra.groupBy ? String(extra.groupBy) : ""
   if (groupBy) url += "&group_by=" + encodeURIComponent(groupBy)
+  var dimensions = extra && extra.dimensions ? String(extra.dimensions) : ""
+  if (dimensions) url += "&dimensions=" + encodeURIComponent(dimensions)
   return url
 }
 
@@ -348,7 +437,13 @@ function pollerKey(settings) {
   var origin = parseHost(configuredHost(settings)).origin
   var ctx = configuredContext(settings)
   var temp = configuredTempQuery(settings)
+  var mem = configuredMemQuery(settings)
+  var power = configuredPowerQuery(settings)
   return origin + "\t" + ctx + "\t" + (temp.context || "") + "\t" + (temp.scopeInstances || "")
+    + "\t" + (mem.context || "") + "\t" + (mem.scopeInstances || "") + "\t" + (mem.dimension || "")
+    + "\t" + (power.context || "") + "\t" + (power.scopeInstances || "") + "\t" + (power.dimension || "")
+    + "\t" + (configuredShowTemp(settings) ? 1 : 0) + (configuredShowMem(settings) ? 1 : 0)
+    + (configuredShowPower(settings) ? 1 : 0)
 }
 
 function configuredSplit(settings) {
@@ -360,9 +455,25 @@ function configuredSplit(settings) {
   return s === "true" || s === "1"
 }
 
-function queryExtra(tempQuery, split) {
+// Per-metric on/off. Default on; an explicit false (or "false"/"0") hides
+// the section entirely so the poller stops fetching it.
+function metricVisible(settings, key) {
+  if (!settings || settings[key] === undefined || settings[key] === null) return true
+  var v = settings[key]
+  if (v === true || v === 1) return true
+  if (v === false || v === 0) return false
+  var s = String(v).replace(/^\s+|\s+$/g, "").toLowerCase()
+  return !(s === "false" || s === "0" || s === "")
+}
+
+function configuredShowTemp(settings) { return metricVisible(settings, "showTemp") }
+function configuredShowMem(settings) { return metricVisible(settings, "showMem") }
+function configuredShowPower(settings) { return metricVisible(settings, "showPower") }
+
+function queryExtra(query, split) {
   var extra = {}
-  if (tempQuery && tempQuery.scopeInstances) extra.scopeInstances = tempQuery.scopeInstances
+  if (query && query.scopeInstances) extra.scopeInstances = query.scopeInstances
+  if (query && query.dimension) extra.dimensions = query.dimension
   if (split) extra.groupBy = "instance"
   return extra
 }
@@ -729,6 +840,35 @@ function formatTemp(value) {
   var n = Number(value)
   if (!isFinite(n)) return "—"
   return String(Math.trunc(n)) + "°"
+}
+
+// Memory is reported in bytes; render as GiB (Netdata's "B" unit).
+function formatBytes(value) {
+  if (value === null || value === undefined || value === "") return "—"
+  var n = Number(value)
+  if (!isFinite(n)) return "—"
+  var gib = n / (1024 * 1024 * 1024)
+  if (gib >= 1) return gib.toFixed(1) + " GiB"
+  var mib = n / (1024 * 1024)
+  if (mib >= 1) return mib.toFixed(0) + " MiB"
+  return String(Math.trunc(n)) + " B"
+}
+
+// Power is reported in watts.
+function formatWatts(value) {
+  if (value === null || value === undefined || value === "") return "—"
+  var n = Number(value)
+  if (!isFinite(n)) return "—"
+  return n >= 100 ? String(Math.trunc(n)) + " W" : n.toFixed(1) + " W"
+}
+
+// Formatter for a companion metric by its reported units.
+function formatMetric(value, units) {
+  var u = String(units || "").toLowerCase()
+  if (u === "watts" || u === "w") return formatWatts(value)
+  if (u === "b" || u === "bytes" || u.indexOf("byte") >= 0) return formatBytes(value)
+  if (u.indexOf("%") >= 0 || u === "percentage") return formatPercent(value) + "%"
+  return String(Math.trunc(Number(value)))
 }
 
 function formatWindow(seconds) {

@@ -123,6 +123,60 @@ if (hist.indexOf("scope_instances=" + encodeURIComponent("*amdgpu*")) < 0) {
   console.log("ok historyUrl includes scope_instances")
 }
 assertEqual(model.defaultTempTitle(), "GPU temperature", "temp title")
+assertEqual(model.defaultMemTitle(), "GPU memory", "mem title")
+assertEqual(model.defaultPowerTitle(), "GPU power", "power title")
+
+// Memory + power query resolution: nvidia defaults, amd defaults (power
+// scoped to amdgpu sensors), and the used-dimension rule for memory.
+assertEqual(
+  model.configuredMemQuery({}),
+  { context: "nvidia_smi.gpu_frame_buffer_memory_usage", scopeInstances: "", dimension: "used", title: "GPU memory", units: "" },
+  "blank settings -> nvidia mem used"
+)
+assertEqual(
+  model.configuredPowerQuery({}),
+  { context: "nvidia_smi.gpu_power_draw", scopeInstances: "", dimension: "", title: "GPU power", units: "" },
+  "blank settings -> nvidia power"
+)
+assertEqual(
+  model.configuredMemQuery({ gpu: "amd" }),
+  { context: "amdgpu.gpu_mem_vram_usage", scopeInstances: "", dimension: "used", title: "GPU memory", units: "" },
+  "amd preset mem used"
+)
+assertEqual(
+  model.configuredPowerQuery({ gpu: "amd" }),
+  { context: "system.hw.sensor.power.input", scopeInstances: "*amdgpu*", dimension: "", title: "GPU power", units: "" },
+  "amd preset power scoped to amdgpu"
+)
+// A primary context override re-derives the vendor for memory/power.
+assertEqual(
+  model.configuredPowerQuery({ context: "amdgpu.gpu_utilization" }),
+  { context: "system.hw.sensor.power.input", scopeInstances: "*amdgpu*", dimension: "", title: "GPU power", units: "" },
+  "amd context override -> amd power"
+)
+assertEqual(
+  model.configuredMemQuery({ context: "amdgpu.gpu_utilization" }),
+  { context: "amdgpu.gpu_mem_vram_usage", scopeInstances: "", dimension: "used", title: "GPU memory", units: "" },
+  "amd context override -> amd mem"
+)
+// An explicit memory context override keeps the used-dimension rule.
+assertEqual(
+  model.metricQuery({ memContext: "nvidia_smi.gpu_frame_buffer_memory_usage" }, "mem"),
+  { context: "nvidia_smi.gpu_frame_buffer_memory_usage", scopeInstances: "", dimension: "used", title: "GPU memory", units: "" },
+  "memContext override keeps used dimension"
+)
+// powerContext override wins.
+assertEqual(
+  model.metricQuery({ powerContext: "system.hw.sensor.power.input" }, "power").context,
+  "system.hw.sensor.power.input",
+  "powerContext override context"
+)
+// Same context as the primary skips the companion.
+assertEqual(
+  model.metricQuery({ context: "nvidia_smi.gpu_power_draw", powerContext: "nvidia_smi.gpu_power_draw" }, "power"),
+  { context: "", scopeInstances: "", dimension: "", title: "", units: "" },
+  "power same as primary -> empty"
+)
 
 assertEqual(model.configuredSplit({}), false, "missing split -> false")
 assertEqual(model.configuredSplit({ split: true }), true, "split true")
@@ -178,6 +232,100 @@ if (bothUrl.indexOf("group_by=instance") < 0 || bothUrl.indexOf("scope_instances
 }
 assertEqual(model.queryExtra(null, false), {}, "queryExtra empty when not split")
 assertEqual(model.queryExtra(null, true), { groupBy: "instance" }, "queryExtra groupBy only")
+assertEqual(model.queryExtra({ dimension: "used" }, false), { dimensions: "used" }, "queryExtra carries dimension")
+assertEqual(
+  model.queryExtra({ scopeInstances: "*amdgpu*", dimension: "used" }, true),
+  { scopeInstances: "*amdgpu*", dimensions: "used", groupBy: "instance" },
+  "queryExtra scope+dimension+split"
+)
+
+// dimensions=used is emitted on the URL so only the used dim is returned.
+const memUrl = model.latestUrl("localhost", "nvidia_smi.gpu_frame_buffer_memory_usage", { dimensions: "used" })
+if (memUrl.indexOf("dimensions=" + encodeURIComponent("used")) < 0) {
+  console.error("FAIL latestUrl missing dimensions=used", memUrl)
+  process.exitCode = 1
+} else {
+  console.log("ok latestUrl includes dimensions=used")
+}
+const memHist = model.historyUrl("localhost", "nvidia_smi.gpu_frame_buffer_memory_usage", 100, 200, 40, { dimensions: "used", groupBy: "instance" })
+if (memHist.indexOf("dimensions=" + encodeURIComponent("used")) < 0 || memHist.indexOf("group_by=instance") < 0) {
+  console.error("FAIL historyUrl missing dimensions+group_by", memHist)
+  process.exitCode = 1
+} else {
+  console.log("ok historyUrl includes dimensions=used and group_by")
+}
+const utilNoDim = model.latestUrl("localhost", "nvidia_smi.gpu_utilization")
+if (utilNoDim.indexOf("dimensions=") >= 0) {
+  console.error("FAIL latestUrl leaked dimensions on util", utilNoDim)
+  process.exitCode = 1
+} else {
+  console.log("ok latestUrl util has no dimensions param")
+}
+
+// Byte + watt formatting.
+assertEqual(model.formatBytes(18520995000), "17.2 GiB", "bytes -> GiB")
+assertEqual(model.formatBytes(2014726200), "1.9 GiB", "bytes ~2 GiB")
+assertEqual(model.formatBytes(5 * 1024 * 1024), "5 MiB", "bytes -> MiB")
+assertEqual(model.formatBytes(null), "—", "bytes null")
+assertEqual(model.formatWatts(254), "254 W", "watts trunc")
+assertEqual(model.formatWatts(13.86), "13.9 W", "watts one decimal")
+assertEqual(model.formatWatts(null), "—", "watts null")
+assertEqual(model.formatMetric(18520995000, "B"), "17.2 GiB", "metric bytes by unit")
+assertEqual(model.formatMetric(254, "Watts"), "254 W", "metric watts by unit")
+assertEqual(model.formatMetric(41.2, "percentage"), "41%", "metric percent by unit")
+
+// pollerKey forks when memory/power configs differ.
+assertEqual(
+  model.pollerKey({ host: "razorback" }),
+  model.pollerKey({ host: "razorback", refreshSeconds: 10 }),
+  "refresh does not fork poller with mem+power"
+)
+if (model.pollerKey({ host: "localhost" }) === model.pollerKey({ host: "localhost", memContext: "system.cpu" })) {
+  console.error("FAIL memContext override must fork a poller")
+  process.exitCode = 1
+} else {
+  console.log("ok memContext override forks a poller")
+}
+if (model.pollerKey({ host: "localhost" }) === model.pollerKey({ host: "localhost", powerContext: "system.cpu" })) {
+  console.error("FAIL powerContext override must fork a poller")
+  process.exitCode = 1
+} else {
+  console.log("ok powerContext override forks a poller")
+}
+
+// Per-metric on/off toggles.
+assertEqual(model.configuredShowTemp({}), true, "showTemp default on")
+assertEqual(model.configuredShowMem({}), true, "showMem default on")
+assertEqual(model.configuredShowPower({}), true, "showPower default on")
+assertEqual(model.configuredShowMem({ showMem: false }), false, "showMem explicit false")
+assertEqual(model.configuredShowPower({ showPower: "false" }), false, "showPower string false")
+assertEqual(model.configuredShowTemp({ showTemp: "1" }), true, "showTemp string 1")
+
+// Hidden mem -> no context (section hidden, polling skipped).
+var memOff = model.configuredMemQuery({ host: "localhost", showMem: false })
+assertEqual(memOff.context, "", "showMem=false empties mem context")
+assertEqual(model.configuredMemQuery({ host: "localhost" }).context, "nvidia_smi.gpu_frame_buffer_memory_usage", "mem context on by default")
+// Hidden power -> no context.
+var powerOff = model.configuredPowerQuery({ host: "localhost", showPower: false })
+assertEqual(powerOff.context, "", "showPower=false empties power context")
+assertEqual(model.configuredPowerQuery({ host: "localhost", gpu: "amd" }).context, "system.hw.sensor.power.input", "amd power context on by default")
+// Hidden temp -> no context (both override and default paths).
+assertEqual(model.configuredTempQuery({ host: "localhost", showTemp: false }).context, "", "showTemp=false empties temp context")
+assertEqual(model.configuredTempQuery({ host: "localhost", showTemp: false, tempContext: "system.cpu" }).context, "", "showTemp=false wins over temp override")
+assertEqual(model.configuredTempQuery({ host: "localhost" }).context, "nvidia_smi.gpu_temperature", "nvidia temp context on by default")
+// Toggles fork pollers (sibling widgets with different visibility).
+if (model.pollerKey({ host: "localhost" }) === model.pollerKey({ host: "localhost", showMem: false })) {
+  console.error("FAIL showMem toggle must fork a poller")
+  process.exitCode = 1
+} else {
+  console.log("ok showMem toggle forks a poller")
+}
+if (model.pollerKey({ host: "localhost" }) === model.pollerKey({ host: "localhost", showTemp: false, showPower: false })) {
+  console.error("FAIL temp+power toggles must fork a poller")
+  process.exitCode = 1
+} else {
+  console.log("ok temp+power toggles fork a poller")
+}
 
 const uuidA = "gpu-ef49ee8f-aaaa-4aaa-8aaa-04fa56b0aaaa"
 const uuidB = "gpu-913c9115-bbbb-4bbb-8bbb-cdd016049eba"

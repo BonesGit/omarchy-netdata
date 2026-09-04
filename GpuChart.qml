@@ -22,6 +22,9 @@ Item {
   property bool autoScale: false
   property bool compact: false
   property bool temperature: false
+  // Non-empty units (e.g. "B", "Watts") switch the hover tooltip from the
+  // percent formatter to the unit-aware metric formatter.
+  property var metricUnits: ""
   property real yMin: 0
   property real yMax: 100
 
@@ -122,6 +125,7 @@ Item {
 
   function formatHoverValue(v) {
     if (temperature) return Model.formatTemp(v)
+    if (metricUnits !== "") return Model.formatMetric(v, metricUnits)
     if (!finiteValue(v)) return "—"
     return Model.formatPercent(v) + "%"
   }

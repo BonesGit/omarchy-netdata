@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.bonesgit.omarchy-netdata",
   "name": "Netdata Monitor",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "author": "bonesgit",
   "license": "MIT",
-  "description": "Netdata GPU utilization and temperature monitor for the Omarchy bar, with history popup.",
+  "description": "Netdata GPU utilization, temperature, memory, and power monitor for the Omarchy bar, with history popup.",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Netdata",
-    "description": "Status pill for a remote Netdata host, with GPU utilization history.",
+    "description": "Status pill for a remote Netdata host, with GPU utilization, temperature, memory, and power history.",
     "category": "System",
     "allowMultiple": true,
     "defaultSection": "right",
@@ -28,8 +28,13 @@
       "gpu": "nvidia",
       "context": "",
       "tempContext": "",
+      "memContext": "",
+      "powerContext": "",
       "dashboardUrl": "",
-      "split": false
+      "split": false,
+      "showTemp": true,
+      "showMem": true,
+      "showPower": true
     },
     "schema": [
       {
@@ -73,7 +78,7 @@
         "label": "GPU",
         "options": ["nvidia", "amd"],
         "defaultValue": "nvidia",
-        "description": "Picks the Netdata utilization and temperature charts. Blank is the same as nvidia. context and tempContext override those picks."
+        "description": "Picks the Netdata utilization, temperature, memory, and power charts. Blank is the same as nvidia. context, tempContext, memContext, and powerContext override those picks."
       },
       {
         "key": "context",
@@ -88,6 +93,20 @@
         "defaultValue": ""
       },
       {
+        "key": "memContext",
+        "type": "string",
+        "label": "GPU memory context override",
+        "defaultValue": "",
+        "description": "Overrides the GPU memory chart context (default nvidia_smi.gpu_frame_buffer_memory_usage / amdgpu.gpu_mem_vram_usage). Only the used dimension is shown."
+      },
+      {
+        "key": "powerContext",
+        "type": "string",
+        "label": "GPU power context override",
+        "defaultValue": "",
+        "description": "Overrides the GPU power chart context (default nvidia_smi.gpu_power_draw / the amdgpu sensors power instance)."
+      },
+      {
         "key": "dashboardUrl",
         "type": "string",
         "label": "Dashboard URL (blank = host)",
@@ -99,6 +118,27 @@
         "label": "Per-GPU lines",
         "defaultValue": false,
         "description": "Draw one line per GPU on both charts instead of one averaged line."
+      },
+      {
+        "key": "showTemp",
+        "type": "boolean",
+        "label": "Show temperature",
+        "defaultValue": true,
+        "description": "Hide the temperature section (and stop polling it) when off."
+      },
+      {
+        "key": "showMem",
+        "type": "boolean",
+        "label": "Show memory",
+        "defaultValue": true,
+        "description": "Hide the GPU memory section (and stop polling it) when off."
+      },
+      {
+        "key": "showPower",
+        "type": "boolean",
+        "label": "Show power draw",
+        "defaultValue": true,
+        "description": "Hide the GPU power section (and stop polling it) when off."
       }
     ]
   }

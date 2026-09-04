@@ -7,7 +7,7 @@ Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Ne
 ## Features
 
 - Bar pill with a status mark and the configured hostname
-- Click the pill for a theme-following popup with current usage, a historical GPU utilization chart, and a smaller GPU temperature chart locked to the same time window
+- Click the pill for a theme-following popup with current usage, a historical GPU utilization chart, and smaller GPU temperature, memory (used), and power draw charts locked to the same time window
 - Scroll to zoom the time window; drag to pan
 - Preset chips: 3D, 2D, 24H, 6H, 3H, 1H, and Live
 - Colors follow the active Omarchy theme (`Color` / `Style`)
@@ -17,7 +17,7 @@ Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Ne
   - Green below 30% GPU, yellow from 30–70%, red above 70%
 - Green and yellow stay semantic so themes that alias `green` to gold still read correctly
 
-Default host is `localhost` (port `19999`). The default `gpu` is `nvidia`, which uses Netdata **v3** context `nvidia_smi.gpu_utilization`. Set `gpu` to `amd` for AMD. Leave `gpu` blank for the same nvidia charts. Set `context` / `tempContext` to override either chart.
+Default host is `localhost` (port `19999`). The default `gpu` is `nvidia`, which uses Netdata **v3** context `nvidia_smi.gpu_utilization`. Set `gpu` to `amd` for AMD. Leave `gpu` blank for the same nvidia charts. Set `context` / `tempContext` / `memContext` / `powerContext` to override any of the charts.
 
 ## Install
 
@@ -81,6 +81,7 @@ omarchy bar set io.github.bonesgit.omarchy-netdata retryAttempts 5
 omarchy bar set io.github.bonesgit.omarchy-netdata retryWindowMinutes 120
 omarchy bar set io.github.bonesgit.omarchy-netdata gpu amd
 omarchy bar set io.github.bonesgit.omarchy-netdata split true
+omarchy bar set io.github.bonesgit.omarchy-netdata showPower false
 omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost:19999/#menu_system_submenu_gpu
 ```
 
@@ -94,9 +95,18 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 
 `gpu` is `nvidia` or `amd` (default `nvidia`). Blank is the same as `nvidia`. That pick supplies both the utilization and temperature charts. Set `context` or `tempContext` to override one or both. If you override `context` and leave `tempContext` blank, temperature is auto-picked from the override context (so an AMD context still gets the `amdgpu` sensors instance).
 
-`split` (default off) draws one line per GPU on both charts instead of one averaged line. The second line uses the theme's urgent color. The bar pill and hero number show the hottest GPU. Per-GPU values appear in the tooltip and the temperature label. Split mode adds Netdata's `group_by=instance` to the query.
+`split` (default off) draws one line per GPU on all four charts instead of one averaged line. The second line uses the theme's urgent color. The bar pill and hero number show the hottest GPU. Per-GPU values appear in the tooltip and the section labels. Split mode adds Netdata's `group_by=instance` to the query.
 
-The bar stays utilization-only. Temperature is a smaller popup chart under utilization, sharing pan/zoom and showing the current degrees next to its title. A failed temp poll never stops the widget.
+Under utilization there are three companion sections: temperature, GPU memory, and power draw, each locked to the same time window with its own title and current value. Defaults:
+
+| GPU | Temperature | Memory | Power |
+| --- | --- | --- | --- |
+| `nvidia` | `nvidia_smi.gpu_temperature` | `nvidia_smi.gpu_frame_buffer_memory_usage` (used only) | `nvidia_smi.gpu_power_draw` |
+| `amd` | `system.hw.sensor.temperature.input` (`*amdgpu*`) | `amdgpu.gpu_mem_vram_usage` (used only) | `system.hw.sensor.power.input` (`*amdgpu*`) |
+
+Memory is always requested with `dimensions=used`, so only the used VRAM line is fetched and drawn. `showTemp`, `showMem`, and `showPower` (all default on) hide a section entirely and stop polling it.
+
+The bar stays utilization-only. A failed poll of any companion metric never stops the widget.
 
 `allowMultiple` is on, so you can put another copy on the bar later and point it at a different machine. Dual-monitor copies of the same host share one poller, so online/offline and start/stop stay in sync.
 
@@ -126,6 +136,7 @@ Panel.qml          KeyboardPanel popup
 Service.qml        plugin singleton; one Poller per host+charts
 Poller.qml         Netdata v3 polling
 GpuChart.qml       pan/zoom canvas
+CompanionChart.qml shared section for temp / memory / power
 Model.js           parse / window math
 ```
 

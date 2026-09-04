@@ -37,20 +37,25 @@ Panel {
       return Model.formatValueList(splitVals, Model.formatPercent, "%")
     return Model.formatPercent(currentValue) + "%"
   }
-  readonly property string tempText: {
-    if (!service) return ""
-    var splitTemps = service.splitTempValues
-    if (splitTemps && splitTemps.length > 1)
-      return Model.formatValueList(splitTemps, Model.formatTemp)
-    if (service.tempValue === null || service.tempValue === undefined) return ""
-    return Model.formatTemp(service.tempValue)
-  }
   readonly property bool showTemp: !!(service && service.tempContextId)
   readonly property var tempPoints: service ? service.tempPoints : []
+  readonly property var memPoints: service ? service.memPoints : []
+  readonly property var powerPoints: service ? service.powerPoints : []
   readonly property var chartSeries: service ? service.series : []
   readonly property var tempSeriesList: service ? service.tempSeries : []
+  readonly property var memSeriesList: service ? service.memSeries : []
+  readonly property var powerSeriesList: service ? service.powerSeries : []
+  readonly property var splitMemValues: service ? service.splitMemValues : []
+  readonly property var splitPowerValues: service ? service.splitPowerValues : []
+  readonly property var splitTempValues: service ? service.splitTempValues : []
   readonly property bool splitEnabled: service ? service.splitEnabled : false
   readonly property string tempTitle: service && service.tempTitle ? service.tempTitle : Model.defaultTempTitle()
+  readonly property string memTitle: service && service.memTitle ? service.memTitle : Model.defaultMemTitle()
+  readonly property string powerTitle: service && service.powerTitle ? service.powerTitle : Model.defaultPowerTitle()
+  readonly property var memUnits: service ? service.memUnits : ""
+  readonly property var powerUnits: service ? service.powerUnits : ""
+  readonly property bool showMem: !!(service && service.memContextId)
+  readonly property bool showPower: !!(service && service.powerContextId)
   readonly property string metaText: {
     if (!polling) return "Stopped"
     if (!connected) return "Offline"
@@ -133,6 +138,8 @@ Panel {
       chartHoverClear.stop()
       if (source !== chart) chart.applyHoverTime(t)
       if (source !== tempChart) tempChart.applyHoverTime(t)
+      if (source !== memChart) memChart.applyHoverTime(t)
+      if (source !== powerChart) powerChart.applyHoverTime(t)
     } else {
       chartHoverClear.restart()
     }
@@ -151,6 +158,8 @@ Panel {
     chartHoverClear.stop()
     chart.applyHoverTime(NaN)
     tempChart.applyHoverTime(NaN)
+    memChart.applyHoverTime(NaN)
+    powerChart.applyHoverTime(NaN)
   }
 
   onSplitEnabledChanged: if (opened) refreshHistory()
@@ -178,9 +187,11 @@ Panel {
     id: chartHoverClear
     interval: 160
     onTriggered: {
-      if (chart.hoverActive || tempChart.hoverActive) return
+      if (chart.hoverActive || tempChart.hoverActive || memChart.hoverActive || powerChart.hoverActive) return
       chart.applyHoverTime(NaN)
       tempChart.applyHoverTime(NaN)
+      memChart.applyHoverTime(NaN)
+      powerChart.applyHoverTime(NaN)
     }
   }
 
@@ -339,15 +350,19 @@ Panel {
               chartHoverClear.stop()
               chart.applyHoverTime(NaN)
               tempChart.applyHoverTime(NaN)
+              memChart.applyHoverTime(NaN)
+              powerChart.applyHoverTime(NaN)
             }
             onPointChanged: {
               if (!hovered) return
               chartHoverClear.stop()
-              if (chart.hoverActive || tempChart.hoverActive) return
+              if (chart.hoverActive || tempChart.hoverActive || memChart.hoverActive || powerChart.hoverActive) return
               var t = chart.timeForX(point.position.x)
               if (!isFinite(Number(t))) return
               chart.applyHoverTime(t)
               tempChart.applyHoverTime(t)
+              memChart.applyHoverTime(t)
+              powerChart.applyHoverTime(t)
             }
           }
 
@@ -407,65 +422,67 @@ Panel {
             }
           }
 
-          Column {
+          CompanionChart {
+            id: tempChart
             width: parent.width
-            visible: root.showTemp
-            height: visible ? implicitHeight : 0
-            spacing: Style.space(6)
+            enabled: root.showTemp
+            title: root.tempTitle
+            points: root.tempPoints
+            series: root.tempSeriesList
+            splitValues: root.splitTempValues
+            windowStart: root.windowStart
+            windowEnd: root.windowEnd
+            live: root.live
+            temperature: true
+            fg: root.foreground
+            fgDim: root.dim
+            fontFam: root.fontFamily
+            chartHeight: Math.round(chart.height / 3)
+            onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
+            onPanRequested: function(delta) { root.panBy(delta) }
+            onHoverMoved: function(t) { root.syncChartHover(t, tempChart) }
+          }
 
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(tempTitleLabel.implicitHeight, tempValueLabel.implicitHeight)
+          CompanionChart {
+            id: memChart
+            width: parent.width
+            enabled: root.showMem
+            title: root.memTitle
+            points: root.memPoints
+            series: root.memSeriesList
+            splitValues: root.splitMemValues
+            windowStart: root.windowStart
+            windowEnd: root.windowEnd
+            live: root.live
+            units: root.memUnits
+            fg: root.foreground
+            fgDim: root.dim
+            fontFam: root.fontFamily
+            chartHeight: Math.round(chart.height / 3)
+            onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
+            onPanRequested: function(delta) { root.panBy(delta) }
+            onHoverMoved: function(t) { root.syncChartHover(t, memChart) }
+          }
 
-              Text {
-                id: tempTitleLabel
-                anchors.left: parent.left
-                anchors.right: tempValueLabel.left
-                anchors.rightMargin: Style.space(10)
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.tempTitle
-                textFormat: Text.PlainText
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle
-                elide: Text.ElideRight
-              }
-
-              Text {
-                id: tempValueLabel
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.tempText !== "" ? root.tempText : "—"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle
-                font.bold: true
-              }
-            }
-
-            GpuChart {
-              id: tempChart
-              width: parent.width
-              height: Math.round(chart.height / 3)
-              points: root.tempPoints
-              series: root.tempSeriesList
-              windowStart: root.windowStart
-              windowEnd: root.windowEnd
-              live: root.live
-              autoScale: true
-              compact: true
-              temperature: true
-              syncHover: true
-              lineColor: Color.accent
-              secondaryColor: Color.urgent
-              gridColor: Color.muted
-              textColor: root.foreground
-              crosshairColor: root.foreground
-              fontFamily: root.fontFamily
-              onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
-              onPanRequested: function(delta) { root.panBy(delta) }
-              onHoverMoved: function(t) { root.syncChartHover(t, tempChart) }
-            }
+          CompanionChart {
+            id: powerChart
+            width: parent.width
+            enabled: root.showPower
+            title: root.powerTitle
+            points: root.powerPoints
+            series: root.powerSeriesList
+            splitValues: root.splitPowerValues
+            windowStart: root.windowStart
+            windowEnd: root.windowEnd
+            live: root.live
+            units: root.powerUnits
+            fg: root.foreground
+            fgDim: root.dim
+            fontFam: root.fontFamily
+            chartHeight: Math.round(chart.height / 3)
+            onZoomRequested: function(factor, anchor) { root.zoomBy(factor, anchor) }
+            onPanRequested: function(delta) { root.panBy(delta) }
+            onHoverMoved: function(t) { root.syncChartHover(t, powerChart) }
           }
         }
 
