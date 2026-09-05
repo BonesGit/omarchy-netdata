@@ -419,7 +419,9 @@ Item {
         return Math.min(root.hoverX + Style.space(8), Math.max(0, parent.width - implicitWidth))
       return Math.max(0, left)
     }
-    y: Style.space(4)
+    // Sit above the chart body, overlapping the section header, so the
+    // tooltip never covers the plotted line or the cursor.
+    y: -implicitHeight - Style.space(2) + 4
     implicitWidth: hoverLabel.implicitWidth + Style.space(10)
     implicitHeight: hoverLabel.implicitHeight + Style.space(6)
     radius: Math.min(Style.cornerRadius, height / 2)
