@@ -1,8 +1,8 @@
 # omarchy-netdata
 
-Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) remote host. Useful when running local AI on another dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Will be adding more metrics over time.
+Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) host. Useful when running local AI on another dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Omarchy theme support.
 
-![GPU usage](preview.png)
+![GPU usage](preview.png) ![GPU usage](preview2.png) ![GPU usage](preview3.png)
 
 ## Features
 
@@ -47,6 +47,8 @@ omarchy plugin validate ~/.config/omarchy/plugins/io.github.bonesgit.omarchy-net
 omarchy restart shell
 ```
 
+
+
 ## Dependencies
 
 - **[Netdata](https://www.netdata.cloud/)** agent reachable from your machine (default `localhost:19999`). The plugin polls the Netdata **v3** HTTP API.
@@ -61,6 +63,8 @@ The plugin only reads metrics from the host you configure. It does not install N
 ```bash
 omarchy plugin update io.github.bonesgit.omarchy-netdata
 ```
+
+
 
 ## Remove
 
@@ -99,10 +103,12 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 
 Under utilization there are three companion sections: temperature, GPU memory, and power draw, each locked to the same time window with its own title and current value. Defaults:
 
-| GPU | Temperature | Memory | Power |
-| --- | --- | --- | --- |
-| `nvidia` | `nvidia_smi.gpu_temperature` | `nvidia_smi.gpu_frame_buffer_memory_usage` (used only) | `nvidia_smi.gpu_power_draw` |
-| `amd` | `system.hw.sensor.temperature.input` (`*amdgpu*`) | `amdgpu.gpu_mem_vram_usage` (used only) | `system.hw.sensor.power.input` (`*amdgpu*`) |
+
+| GPU      | Temperature                                       | Memory                                                 | Power                                       |
+| -------- | ------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------- |
+| `nvidia` | `nvidia_smi.gpu_temperature`                      | `nvidia_smi.gpu_frame_buffer_memory_usage` (used only) | `nvidia_smi.gpu_power_draw`                 |
+| `amd`    | `system.hw.sensor.temperature.input` (`*amdgpu*`) | `amdgpu.gpu_mem_vram_usage` (used only)                | `system.hw.sensor.power.input` (`*amdgpu*`) |
+
 
 Memory is always requested with `dimensions=used`, so only the used VRAM line is fetched and drawn. `showTemp`, `showMem`, and `showPower` (all default on) hide a section entirely and stop polling it.
 
