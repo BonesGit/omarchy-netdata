@@ -23,7 +23,7 @@ BarWidget {
     var key = netdata.status
     if (key === "low") return themeGreen
     if (key === "mid") return themeYellow
-    if (key === "high") return Color.urgent
+    if (key === "high") return themeRed
     return Color.muted
   }
   readonly property string hostLabel: netdata ? netdata.hostLabel : Model.hostLabel(Model.configuredHost(root.settings))
@@ -43,6 +43,7 @@ BarWidget {
 
   property color themeGreen: "#3ecf6a"
   property color themeYellow: "#e0b44b"
+  property color themeRed: "#a55555"
 
   function bindService() {
     if (!root.moduleName) return
@@ -89,7 +90,7 @@ BarWidget {
     var key = Model.matrixCellKey(v, root.matrixRows - 1 - rowFromTop, root.matrixRows)
     if (key === "low") return themeGreen
     if (key === "mid") return themeYellow
-    if (key === "high") return Color.urgent
+    if (key === "high") return themeRed
     return Qt.rgba(Color.muted.r, Color.muted.g, Color.muted.b, 0.38)
   }
 
