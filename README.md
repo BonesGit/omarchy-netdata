@@ -13,8 +13,9 @@ Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Ne
 - Colors follow the active Omarchy theme (`Color` / `Style`)
 - Status mark states:
   - Grey square outline when polling is stopped
-  - Grey solid circle when polling but the host is unreachable
-  - Green below 30% GPU, yellow from 30–70%, red above 70%
+  - Configurable LED matrix (default 5×5) while polling: each column is one refresh, newest on the right, height is GPU utilization
+  - Dots are a green (bottom) → yellow → red (top) gradient using the same 30% / 70% cuts as before
+  - Unlit (dim grey) dots when polling but the host is unreachable or still checking
 - Green and yellow stay semantic so themes that alias `green` to gold still read correctly
 
 Default host is `localhost` (port `19999`). The default `gpu` is `nvidia`, which uses Netdata **v3** context `nvidia_smi.gpu_utilization`. Set `gpu` to `amd` for AMD. Leave `gpu` blank for the same nvidia charts. Set `context` / `tempContext` / `memContext` / `powerContext` to override any of the charts.
@@ -86,6 +87,8 @@ omarchy bar set io.github.bonesgit.omarchy-netdata retryWindowMinutes 120
 omarchy bar set io.github.bonesgit.omarchy-netdata gpu amd
 omarchy bar set io.github.bonesgit.omarchy-netdata split true
 omarchy bar set io.github.bonesgit.omarchy-netdata showPower false
+omarchy bar set io.github.bonesgit.omarchy-netdata matrixColumns 5
+omarchy bar set io.github.bonesgit.omarchy-netdata matrixRows 5
 omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost:19999/#menu_system_submenu_gpu
 ```
 
@@ -100,6 +103,8 @@ omarchy bar set io.github.bonesgit.omarchy-netdata dashboardUrl http://localhost
 `gpu` is `nvidia` or `amd` (default `nvidia`). Blank is the same as `nvidia`. That pick supplies both the utilization and temperature charts. Set `context` or `tempContext` to override one or both. If you override `context` and leave `tempContext` blank, temperature is auto-picked from the override context (so an AMD context still gets the `amdgpu` sensors instance).
 
 `split` (default off) draws one line per GPU on all four charts instead of one averaged line. The second line uses the theme's urgent color. The bar pill and hero number show the hottest GPU. Per-GPU values appear in the tooltip and the section labels. Split mode adds Netdata's `group_by=instance` to the query.
+
+`matrixColumns` and `matrixRows` size the menubar LED matrix (default 5×5). Columns are time (1–24, one per refresh, scrolling left); rows are utilization (1–9). Try `3`×`5` or `5`×`4` if 5×5 feels busy.
 
 Under utilization there are three companion sections: temperature, GPU memory, and power draw, each locked to the same time window with its own title and current value. Defaults:
 

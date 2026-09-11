@@ -34,7 +34,9 @@
       "split": false,
       "showTemp": true,
       "showMem": true,
-      "showPower": true
+      "showPower": true,
+      "matrixColumns": 5,
+      "matrixRows": 5
     },
     "schema": [
       {
@@ -139,6 +141,26 @@
         "label": "Show power draw",
         "defaultValue": true,
         "description": "Hide the GPU power section (and stop polling it) when off."
+      },
+      {
+        "key": "matrixColumns",
+        "type": "integer",
+        "label": "Pill matrix columns",
+        "min": 1,
+        "max": 24,
+        "step": 1,
+        "defaultValue": 5,
+        "description": "Time slices in the menubar LED matrix (newest column on the right). Each column is one refresh."
+      },
+      {
+        "key": "matrixRows",
+        "type": "integer",
+        "label": "Pill matrix rows",
+        "min": 1,
+        "max": 9,
+        "step": 1,
+        "defaultValue": 5,
+        "description": "Vertical dots per column in the menubar LED matrix. Height is GPU utilization; green at the bottom, red at the top."
       }
     ]
   }

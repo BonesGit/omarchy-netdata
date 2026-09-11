@@ -27,6 +27,10 @@ BarWidget {
     return Color.muted
   }
   readonly property string hostLabel: netdata ? netdata.hostLabel : Model.hostLabel(Model.configuredHost(root.settings))
+  readonly property int matrixColumns: Model.configuredMatrixColumns(root.settings)
+  readonly property int matrixRows: Model.configuredMatrixRows(root.settings)
+  readonly property var matrixGeom: Model.matrixLayout(matrixColumns, matrixRows, Style.bar.iconCanvas, Style.space(1))
+  readonly property var sparkSamples: Model.sparkWindow(netdata ? netdata.sparkValues : [], matrixColumns)
   readonly property real openPanelIndicatorWidth: root.vertical ? 0 : contentRow.implicitWidth
   readonly property real openPanelIndicatorHeight: Math.max(Style.space(10), Math.round(Style.bar.iconSlot * 0.55))
   readonly property string tooltip: {
@@ -79,6 +83,16 @@ BarWidget {
     if ("statusColor" in target) target.statusColor = root.statusColor
   }
 
+  function sparkDotColor(colIndex, rowFromTop) {
+    var values = root.sparkSamples
+    var v = values && colIndex < values.length ? values[colIndex] : null
+    var key = Model.matrixCellKey(v, root.matrixRows - 1 - rowFromTop, root.matrixRows)
+    if (key === "low") return themeGreen
+    if (key === "mid") return themeYellow
+    if (key === "high") return Color.urgent
+    return Qt.rgba(Color.muted.r, Color.muted.g, Color.muted.b, 0.38)
+  }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -96,18 +110,48 @@ BarWidget {
   }
 
   // Stopped (not polling): grey square outline.
-  // Playing + unreachable: grey solid circle (statusColor fallback).
-  // Playing + connected: filled circle in green / yellow / red.
-  component StatusMark: Rectangle {
-    width: Style.space(8)
-    height: Style.space(8)
-    radius: netdata && netdata.polling ? width / 2 : 0
-    color: netdata && netdata.polling ? root.statusColor : "transparent"
-    border.width: netdata && netdata.polling ? 0 : 1
-    border.color: Color.muted
+  // Polling: N×M LED matrix (default 5×5). Columns are refresh slices
+  // (newest on the right); rows are utilization, green at the bottom to
+  // red at the top. Offline / checking is the same grid with unlit dots.
+  component StatusMark: Item {
+    implicitWidth: root.matrixGeom.width
+    implicitHeight: Math.max(root.matrixGeom.height, Style.space(8))
+    width: implicitWidth
+    height: implicitHeight
 
-    Behavior on color {
-      ColorAnimation { duration: 160 }
+    Rectangle {
+      visible: !(netdata && netdata.polling)
+      width: Style.space(8)
+      height: Style.space(8)
+      color: "transparent"
+      border.width: 1
+      border.color: Color.muted
+      anchors.centerIn: parent
+    }
+
+    Row {
+      visible: !!(netdata && netdata.polling)
+      anchors.centerIn: parent
+      spacing: root.matrixGeom.gap
+
+      Repeater {
+        model: root.matrixColumns
+        Column {
+          id: sparkCol
+          spacing: root.matrixGeom.gap
+          property int colIndex: index
+
+          Repeater {
+            model: root.matrixRows
+            Rectangle {
+              width: root.matrixGeom.cell
+              height: root.matrixGeom.cell
+              radius: width / 2
+              color: root.sparkDotColor(sparkCol.colIndex, index)
+            }
+          }
+        }
+      }
     }
   }
 

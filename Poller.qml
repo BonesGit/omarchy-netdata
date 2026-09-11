@@ -76,6 +76,9 @@ Item {
 
   property var series: []
   property var splitValues: []
+  // Last N live utilization samples for the menubar LED matrix.
+  // History fetches do not write this — only applyLatest.
+  property var sparkValues: []
 
   readonly property string hostRaw: Model.configuredHost(settings)
   readonly property string contextId: Model.configuredContext(settings)
@@ -192,6 +195,7 @@ Item {
     points = []
     splitValues = []
     currentValue = null
+    sparkValues = []
     clearCompanionState()
   }
 
@@ -321,6 +325,7 @@ Item {
     lastError = ""
     resetFailureState()
     currentValue = value
+    sparkValues = Model.pushSpark(sparkValues, value, Model.maxSparkLength())
     splitValues = values
     if (meta.nodeName) nodeName = meta.nodeName
     if (meta.title) chartTitle = meta.title
@@ -483,6 +488,7 @@ Item {
   function markDisconnected(reason) {
     connected = false
     currentValue = null
+    sparkValues = []
     lastError = reason || "unreachable"
     if (!polling || countedThisPoll) return
     countedThisPoll = true
