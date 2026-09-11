@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.bonesgit.omarchy-netdata",
   "name": "Netdata Monitor",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "author": "bonesgit",
   "license": "MIT",
   "description": "Netdata GPU utilization, temperature, memory, and power monitor for the Omarchy bar, with history popup.",

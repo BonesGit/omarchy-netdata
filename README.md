@@ -2,11 +2,14 @@
 
 Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) host. Useful when running local AI on another dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Omarchy theme support.
 
+![LED matrix](preview4.png) ![LED matrix](preview5.png) ![LED matrix](preview6.png) ![LED matrix](preview7.png) ![LED matrix](preview8.png) ![LED matrix](preview9.png) ![LED matrix](preview10.png) ![LED matrix](preview11.png) ![LED matrix](preview12.png)
+
 ![GPU usage](preview.png) ![GPU usage](preview2.png) ![GPU usage](preview3.png)
 
 ## Features
 
 - Bar pill with a status mark and the configured hostname
+- Configurable LED matrix in the pill (default 5×5): each column is one refresh, newest on the right, height is GPU utilization with a green → yellow → red gradient
 - Click the pill for a theme-following popup with current usage, a historical GPU utilization chart, and smaller GPU temperature, memory (used), and power draw charts locked to the same time window
 - Scroll to zoom the time window; drag to pan
 - Preset chips: 3D, 2D, 24H, 6H, 3H, 1H, and Live
@@ -27,6 +30,20 @@ omarchy plugin add https://github.com/BonesGit/omarchy-netdata.git --enable
 ```
 
 The widget lands in the right section of the bar. Update with `omarchy plugin update io.github.bonesgit.omarchy-netdata`. Remove with `omarchy plugin remove io.github.bonesgit.omarchy-netdata`.
+
+## Update
+
+```bash
+omarchy plugin update io.github.bonesgit.omarchy-netdata
+```
+
+
+
+## Remove
+
+```bash
+omarchy plugin remove io.github.bonesgit.omarchy-netdata
+```
 
 ### Manual install
 
@@ -58,20 +75,6 @@ omarchy restart shell
 - **Default GPU:** `nvidia` (`nvidia_smi.gpu_utilization`). `amd` uses `amdgpu.gpu_utilization`. Blank `gpu` is the same as `nvidia`. Override either chart with `context` / `tempContext`.
 
 The plugin only reads metrics from the host you configure. It does not install Netdata, collect GPU data itself, or modify your Netdata configuration.
-
-## Update
-
-```bash
-omarchy plugin update io.github.bonesgit.omarchy-netdata
-```
-
-
-
-## Remove
-
-```bash
-omarchy plugin remove io.github.bonesgit.omarchy-netdata
-```
 
 
 
