@@ -44,6 +44,11 @@ var MAX_WINDOW_SEC = 3 * 24 * 60 * 60
 var DEFAULT_WINDOW_SEC = 10 * 60
 var LOW_USAGE = 30
 var HIGH_USAGE = 70
+var DEFAULT_MATRIX_COLUMNS = 5
+var DEFAULT_MATRIX_ROWS = 5
+var MIN_MATRIX_DIM = 1
+var MAX_MATRIX_COLUMNS = 24
+var MAX_MATRIX_ROWS = 9
 var HOUR_SEC = 60 * 60
 var DAY_SEC = 24 * HOUR_SEC
 var MAX_LATEST_RESPONSE_BYTES = 256 * 1024
@@ -785,6 +790,108 @@ function statusKey(connected, value) {
   if (n < LOW_USAGE) return "low"
   if (n > HIGH_USAGE) return "high"
   return "mid"
+}
+
+function clampMatrixInt(value, fallback, min, max) {
+  var n = parseInt(value, 10)
+  if (!isFinite(n)) n = fallback
+  return Math.max(min, Math.min(max, n))
+}
+
+function clampMatrixColumns(value) {
+  return clampMatrixInt(value, DEFAULT_MATRIX_COLUMNS, MIN_MATRIX_DIM, MAX_MATRIX_COLUMNS)
+}
+
+function clampMatrixRows(value) {
+  return clampMatrixInt(value, DEFAULT_MATRIX_ROWS, MIN_MATRIX_DIM, MAX_MATRIX_ROWS)
+}
+
+function configuredMatrixColumns(settings) {
+  return clampMatrixColumns(settings && settings.matrixColumns)
+}
+
+function configuredMatrixRows(settings) {
+  return clampMatrixRows(settings && settings.matrixRows)
+}
+
+function maxSparkLength() {
+  return MAX_MATRIX_COLUMNS
+}
+
+// Live pill sparkline: newest sample on the right, older columns shift
+// left. Pad the left with nulls until we have a full window.
+function sparkWindow(values, columns) {
+  var cols = clampMatrixColumns(columns)
+  var src = values || []
+  var out = []
+  var start = Math.max(0, src.length - cols)
+  var i
+  for (i = 0; i < cols - (src.length - start); i++) out.push(null)
+  for (i = start; i < src.length; i++) out.push(src[i])
+  return out
+}
+
+function pushSpark(values, next, maxLen) {
+  if (next === null || next === undefined || next === "") return (values || []).slice()
+  var n = Number(next)
+  if (!isFinite(n)) return (values || []).slice()
+  var cap = clampMatrixInt(maxLen, MAX_MATRIX_COLUMNS, MIN_MATRIX_DIM, MAX_MATRIX_COLUMNS)
+  var out = (values || []).slice()
+  out.push(n)
+  if (out.length > cap) out = out.slice(out.length - cap)
+  return out
+}
+
+function matrixLitCount(value, rows) {
+  var height = clampMatrixRows(rows)
+  if (value === null || value === undefined || value === "") return 0
+  var n = Number(value)
+  if (!isFinite(n) || n < 0) return 0
+  var lit = Math.round(Math.min(100, n) / 100 * height)
+  lit = Math.max(1, Math.min(height, lit))
+  // A yellow/red reading must reach that color row. On 3x3, 45% would
+  // otherwise only light the bottom green (round(0.45*3)=1).
+  var key = statusKey(true, n)
+  var i
+  for (i = 0; i < height; i++) {
+    if (matrixRowKey(i, height) === key) {
+      lit = Math.max(lit, i + 1)
+      break
+    }
+  }
+  return Math.min(height, lit)
+}
+
+// rowFromBottom 0 = green (low), top row = red (high). Midpoint of the
+// row's band uses the same 30 / 70 cut as statusKey.
+function matrixRowKey(rowFromBottom, rows) {
+  var height = clampMatrixRows(rows)
+  var row = Math.max(0, Math.min(height - 1, Math.floor(Number(rowFromBottom) || 0)))
+  var mid = ((row + 0.5) / height) * 100
+  return statusKey(true, mid)
+}
+
+function matrixCellKey(value, rowFromBottom, rows) {
+  var height = clampMatrixRows(rows)
+  var row = Math.max(0, Math.min(height - 1, Math.floor(Number(rowFromBottom) || 0)))
+  if (row >= matrixLitCount(value, height)) return "off"
+  return matrixRowKey(row, height)
+}
+
+function matrixLayout(cols, rows, targetPx, gapPx) {
+  var c = clampMatrixColumns(cols)
+  var r = clampMatrixRows(rows)
+  var gap = Math.max(1, Math.round(Number(gapPx) || 1))
+  var target = Math.max(8, Math.round(Number(targetPx) || 16))
+  var cell = Math.max(1, Math.floor((target - (r - 1) * gap) / r))
+  return {
+    cols: c,
+    rows: r,
+    cell: cell,
+    gap: gap,
+    width: c * cell + (c - 1) * gap,
+    height: r * cell + (r - 1) * gap
+  }
 }
 
 function parseHex(hex) {

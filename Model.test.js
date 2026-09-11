@@ -486,4 +486,66 @@ assertEqual(
   "context override forks a poller"
 )
 
+// Pill sparkline: configurable N×M LED matrix. Newest sample is the
+// rightmost column; missing history pads the left with empty columns.
+assertEqual(model.configuredMatrixColumns({}), 5, "matrix columns default 5")
+assertEqual(model.configuredMatrixRows({}), 5, "matrix rows default 5")
+assertEqual(model.configuredMatrixColumns({ matrixColumns: 3 }), 3, "matrix columns 3")
+assertEqual(model.configuredMatrixRows({ matrixRows: 3 }), 3, "matrix rows 3")
+assertEqual(model.configuredMatrixColumns({ matrixColumns: 20 }), 20, "matrix columns 20")
+assertEqual(model.configuredMatrixColumns({ matrixColumns: 99 }), 24, "matrix columns clamp max 24")
+assertEqual(model.configuredMatrixRows({ matrixRows: 0 }), 1, "matrix rows clamp min")
+assertEqual(model.configuredMatrixRows({ matrixRows: 99 }), 9, "matrix rows clamp max 9")
+assertEqual(model.configuredMatrixColumns({ matrixColumns: "notanumber" }), 5, "matrix columns NaN -> default")
+assertEqual(
+  model.pollerKey({ host: "localhost" }),
+  model.pollerKey({ host: "localhost", matrixColumns: 3, matrixRows: 3 }),
+  "matrix size does not fork a poller"
+)
+
+assertEqual(model.sparkWindow(null, 5), [null, null, null, null, null], "empty spark pads left")
+assertEqual(model.sparkWindow([12], 5), [null, null, null, null, 12], "one sample is rightmost")
+assertEqual(model.sparkWindow([1, 2, 3, 4, 5, 6], 5), [2, 3, 4, 5, 6], "spark keeps last N")
+assertEqual(model.pushSpark([], 41, 5), [41], "push onto empty")
+assertEqual(model.pushSpark([1, 2, 3, 4, 5], 6, 5), [2, 3, 4, 5, 6], "push drops oldest")
+assertEqual(model.pushSpark([1, 2], null, 5), [1, 2], "push ignores null")
+
+assertEqual(model.matrixLitCount(null, 5), 0, "null usage lights nothing")
+assertEqual(model.matrixLitCount(0, 5), 1, "0% lights bottom green")
+assertEqual(model.matrixLitCount(1, 5), 1, "any positive lights at least one")
+assertEqual(model.matrixCellKey(0, 0, 5), "low", "0% bottom cell is green")
+assertEqual(model.matrixCellKey(0, 1, 5), "off", "0% does not light row 1")
+assertEqual(model.matrixLitCount(50, 5), 3, "50% of 5 rows -> 3")
+assertEqual(model.matrixLitCount(100, 5), 5, "100% lights all")
+assertEqual(model.matrixLitCount(100, 3), 3, "100% of 3 rows")
+// 3x3: 45% is yellow on the circle, so the bar must reach the yellow row
+// (round(0.45*3)=1 would only light green).
+assertEqual(model.matrixLitCount(45, 3), 2, "45% of 3 rows reaches yellow")
+assertEqual(model.matrixCellKey(45, 0, 3), "low", "45% 3-row bottom stays green")
+assertEqual(model.matrixCellKey(45, 1, 3), "mid", "45% 3-row shows yellow")
+assertEqual(model.matrixCellKey(45, 2, 3), "off", "45% 3-row does not light red")
+assertEqual(model.matrixLitCount(80, 3), 3, "80% of 3 rows reaches red")
+assertEqual(model.matrixCellKey(80, 2, 3), "high", "80% 3-row top is red")
+assertEqual(model.matrixLitCount(20, 3), 1, "20% of 3 rows stays green")
+
+assertEqual(model.matrixRowKey(0, 5), "low", "bottom row is green")
+assertEqual(model.matrixRowKey(4, 5), "high", "top row is red")
+assertEqual(model.matrixRowKey(2, 5), "mid", "middle row is yellow")
+assertEqual(model.matrixRowKey(0, 3), "low", "3-row bottom green")
+assertEqual(model.matrixRowKey(1, 3), "mid", "3-row middle yellow")
+assertEqual(model.matrixRowKey(2, 3), "high", "3-row top red")
+
+assertEqual(model.matrixCellKey(null, 0, 5), "off", "empty column is unlit")
+assertEqual(model.matrixCellKey(50, 0, 5), "low", "50% lights bottom green")
+assertEqual(model.matrixCellKey(50, 2, 5), "mid", "50% lights up through yellow")
+assertEqual(model.matrixCellKey(50, 3, 5), "off", "50% does not light row 3")
+assertEqual(model.matrixCellKey(100, 4, 5), "high", "100% lights top red")
+
+const layout5 = model.matrixLayout(5, 5, 16, 1)
+assertEqual(layout5.cell, 2, "5x5 cell fits 16px canvas")
+assertEqual(layout5.width, 14, "5x5 width")
+assertEqual(layout5.height, 14, "5x5 height")
+const layout3 = model.matrixLayout(3, 3, 16, 1)
+assertEqual(layout3.cell >= layout5.cell, true, "fewer rows get larger dots")
+
 if (!process.exitCode) console.log("all tests passed")
