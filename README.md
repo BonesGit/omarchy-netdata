@@ -1,3 +1,5 @@
+[![Built for Omarchy: Plugin](https://raw.githubusercontent.com/tcballard/omarchy-badges/75975e5b5bf75e7ede3764bcd2950046f7abfe2c/badges/v1/omarchy-plugin.svg)](https://github.com/tcballard/omarchy-badges)
+
 # omarchy-netdata
 
 Omarchy Quattro menubar widget for tracking GPU usage of a remote host via a [Netdata](https://www.netdata.cloud/) host. Useful when running local AI on another dedicated machine. Shows GPU utilization in the menubar and a historical chart in a popup. Omarchy theme support.
